@@ -10,6 +10,13 @@ export const ActiveSessions: React.FC = () => {
       project: 'example/acme-web',
       timestamp: '12h ago',
     },
+    {
+      id: '2',
+      name: 'feature/task-lifecycle-board',
+      branch: 'example/platform-ui',
+      project: 'example/platform-ui',
+      timestamp: '45m ago',
+    },
   ];
 
   return (

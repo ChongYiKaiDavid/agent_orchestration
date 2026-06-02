@@ -23,6 +23,13 @@ export const RecentActivity: React.FC = () => {
       project: '',
       timestamp: '11h ago',
     },
+    {
+      id: '4',
+      icon: '📝',
+      title: 'Draft task created for release notes automation',
+      project: 'Frontend Demo',
+      timestamp: '1d ago',
+    },
   ];
 
   return (

@@ -18,6 +18,12 @@ const PipelinesPage: React.FC = () => {
       builtIn: true,
       stages: ['planning', 'coding', 'reviewing'],
     },
+    {
+      id: 'release-ready',
+      displayName: 'Plan → Code → Review → Merge',
+      builtIn: false,
+      stages: ['planning', 'coding', 'reviewing', 'merging'],
+    },
   ];
 
   const stageDetails = {
@@ -47,6 +53,15 @@ const PipelinesPage: React.FC = () => {
       retryCleanup: false,
       generateDiff: false,
       verifyFiles: [],
+    },
+    merging: {
+      name: 'merging',
+      agent: 'Shipper',
+      next: '',
+      override: false,
+      retryCleanup: false,
+      generateDiff: false,
+      verifyFiles: ['reviewer.review.md', 'delivery.summary.md'],
     },
   };
 

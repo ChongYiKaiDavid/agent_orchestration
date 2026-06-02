@@ -24,6 +24,13 @@ export const RecentEvents: React.FC = () => {
       timestamp: '11h ago',
       icon: '▶️',
     },
+    {
+      id: '4',
+      type: 'Completed',
+      message: 'Release notes automation queued for review',
+      timestamp: '1d ago',
+      icon: '✅',
+    },
   ];
 
   return (

@@ -46,7 +46,7 @@ function App() {
   return (
     <div className="app">
       <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} selected={selectedSection} onSelect={handleSelect} />
-      <div style={{flex:1}}>
+      <div className="app-content">
         {selectedSection !== 'dashboard' && <Header onMenuClick={toggleSidebar} />}
 
         <Layout>

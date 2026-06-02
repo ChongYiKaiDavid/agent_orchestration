@@ -5,6 +5,8 @@ export const Pods: React.FC = () => {
   const pods: Pod[] = [
     { name: 'frontend-web', status: 'running' },
     { name: 'sample-worker', status: 'running' },
+    { name: 'review-bot', status: 'pending' },
+    { name: 'release-watcher', status: 'done' },
   ];
 
   return (

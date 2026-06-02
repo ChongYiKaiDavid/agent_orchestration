@@ -30,6 +30,15 @@ export const RecentTasks: React.FC = () => {
       timestamp: '2d ago',
       link: 'PR #331',
     },
+    {
+      id: '4',
+      title: 'Prepare release notes generator',
+      status: 'pending',
+      project: 'example/acme-web',
+      agent: 'Planner',
+      timestamp: 'just now',
+      link: 'Draft',
+    },
   ];
 
   const getStatusLabel = (status: string) => {

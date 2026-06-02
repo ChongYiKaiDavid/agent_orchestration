@@ -2,13 +2,13 @@ import React, { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 const SettingsPage: React.FC = () => {
-  const [projectName, setProjectName] = useState('unnamed');
-  const [displayName, setDisplayName] = useState('Unnamed Project');
+  const [projectName, setProjectName] = useState('acme-release-ops');
+  const [displayName, setDisplayName] = useState('Acme Release Ops');
   const [gitEnabled, setGitEnabled] = useState(true);
   const [targetBranch, setTargetBranch] = useState('main');
-  const [branchPattern, setBranchPattern] = useState('feature/{task_id}');
-  const [cliExecutable, setCliExecutable] = useState('devin');
-  const [model, setModel] = useState('');
+  const [branchPattern, setBranchPattern] = useState('feature/{task_id}-{short_name}');
+  const [cliExecutable, setCliExecutable] = useState('copilot-runner');
+  const [model, setModel] = useState('gpt-5.4-mini');
 
   const [expandedSections, setExpandedSections] = useState({
     project: true,
