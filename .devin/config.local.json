@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Exec(~/.local/bin/devin)",
+      "Exec(source)"
+    ]
+  }
+}
