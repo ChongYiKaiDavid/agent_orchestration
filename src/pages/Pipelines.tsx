@@ -1,72 +1,43 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
+import { fetchPipelines } from '../api';
+
+const defaultPipelines = [
+  {
+    id: 'code-only',
+    name: 'Code Only',
+    builtIn: true,
+    stages: [{ id: 'coding', name: 'Coding', agent: 'Devin' }],
+  },
+  {
+    id: 'plan-code-review',
+    name: 'Plan → Code → Review',
+    builtIn: true,
+    stages: [
+      { id: 'planning', name: 'Planning', agent: 'Devin' },
+      { id: 'coding', name: 'Coding', agent: 'Devin' },
+      { id: 'reviewing', name: 'Reviewing', agent: 'Devin' },
+    ],
+  },
+];
 
 const PipelinesPage: React.FC = () => {
   const [selectedPipeline, setSelectedPipeline] = useState('plan-code-review');
   const [selectedStage, setSelectedStage] = useState(0);
+  const [pipelines, setPipelines] = useState<any[]>(defaultPipelines);
 
-  const pipelines = [
-    {
-      id: 'code-only',
-      displayName: 'Code Only',
-      builtIn: true,
-      stages: ['coding'],
-    },
-    {
-      id: 'plan-code-review',
-      displayName: 'Plan → Code → Review',
-      builtIn: true,
-      stages: ['planning', 'coding', 'reviewing'],
-    },
-    {
-      id: 'release-ready',
-      displayName: 'Plan → Code → Review → Merge',
-      builtIn: false,
-      stages: ['planning', 'coding', 'reviewing', 'merging'],
-    },
-  ];
-
-  const stageDetails = {
-    planning: {
-      name: 'planning',
-      agent: 'Planner',
-      next: 'coding',
-      override: false,
-      retryCleanup: false,
-      generateDiff: false,
-      verifyFiles: ['planner.requirements.md', 'planner.design.md'],
-    },
-    coding: {
-      name: 'coding',
-      agent: 'Code Executor',
-      next: 'reviewing',
-      override: false,
-      retryCleanup: false,
-      generateDiff: false,
-      verifyFiles: [],
-    },
-    reviewing: {
-      name: 'reviewing',
-      agent: 'Reviewer',
-      next: '',
-      override: false,
-      retryCleanup: false,
-      generateDiff: false,
-      verifyFiles: [],
-    },
-    merging: {
-      name: 'merging',
-      agent: 'Shipper',
-      next: '',
-      override: false,
-      retryCleanup: false,
-      generateDiff: false,
-      verifyFiles: ['reviewer.review.md', 'delivery.summary.md'],
-    },
-  };
+  useEffect(() => {
+    fetchPipelines().then((items) => {
+      if (Array.isArray(items) && items.length > 0) {
+        setPipelines(items);
+      }
+    }).catch(() => {
+      setPipelines(defaultPipelines);
+    });
+  }, []);
 
   const current = pipelines.find((p) => p.id === selectedPipeline) || pipelines[0];
-  const currentStage = stageDetails[current.stages[selectedStage] as keyof typeof stageDetails];
+  const currentStage = current?.stages[selectedStage] || current?.stages[0] || { id: '', name: '', agent: '', verifyFiles: [] };
 
   return (
     <div className="pipelines-page">
@@ -94,9 +65,9 @@ const PipelinesPage: React.FC = () => {
                   <div className="pipelines-list-id">{pipeline.id}</div>
                   {pipeline.builtIn && <span className="pipelines-badge">Built-In</span>}
                 </div>
-                <div className="pipelines-list-name">{pipeline.displayName}</div>
+                <div className="pipelines-list-name">{pipeline.name}</div>
                 <div className="pipelines-list-stages">
-                  {pipeline.stages.length} stage{pipeline.stages.length !== 1 ? 's' : ''}
+                  {(pipeline.stages?.length || 0)} stage{(pipeline.stages?.length || 0) !== 1 ? 's' : ''}
                 </div>
               </button>
             ))}
@@ -106,25 +77,25 @@ const PipelinesPage: React.FC = () => {
         <div className="pipelines-detail">
           <div className="pipelines-detail-field">
             <span className="pipelines-detail-label">Name</span>
-            <div className="pipelines-detail-value">{current.id}</div>
+            <div className="pipelines-detail-value">{current?.id}</div>
           </div>
 
           <div className="pipelines-detail-field">
             <span className="pipelines-detail-label">Display Name</span>
-            <div className="pipelines-detail-value">{current.displayName}</div>
+            <div className="pipelines-detail-value">{current?.name}</div>
           </div>
 
           <div className="pipelines-stages-section">
             <div className="pipelines-detail-label">Stages</div>
             <div className="pipelines-stages-diagram">
-              {current.stages.map((stage, idx) => (
-                <React.Fragment key={stage}>
+              {current?.stages?.map((stage: any, idx: number) => (
+                <React.Fragment key={stage.id || stage.name || idx}>
                   <button
                     type="button"
                     className={`pipelines-stage-box ${selectedStage === idx ? 'active' : ''}`}
                     onClick={() => setSelectedStage(idx)}
                   >
-                    {stage}
+                    {stage.name || stage.id}
                   </button>
                   {idx < current.stages.length - 1 && <span className="pipelines-stage-arrow">−</span>}
                 </React.Fragment>
@@ -146,13 +117,13 @@ const PipelinesPage: React.FC = () => {
             <div className="pipelines-stage-grid">
               <div className="pipelines-field">
                 <label className="pipelines-label">Name</label>
-                <div className="pipelines-value">{currentStage.name}</div>
+                <div className="pipelines-value">{currentStage.name || currentStage.id}</div>
               </div>
 
               <div className="pipelines-field">
                 <label className="pipelines-label">Agent</label>
                 <select className="pipelines-select">
-                  <option>{currentStage.agent}</option>
+                  <option>{currentStage.agent || 'Unknown'}</option>
                 </select>
               </div>
             </div>
@@ -160,7 +131,7 @@ const PipelinesPage: React.FC = () => {
             <div className="pipelines-field">
               <label className="pipelines-label">Next</label>
               <div className="pipelines-next-wrap">
-                <span className="pipelines-next-stage">{currentStage.next}</span>
+                <span className="pipelines-next-stage">{current.stages[selectedStage + 1]?.name || ''}</span>
                 <button className="pipelines-override-btn" type="button">
                   Override
                 </button>
@@ -169,20 +140,20 @@ const PipelinesPage: React.FC = () => {
 
             <div className="pipelines-checkboxes">
               <label className="pipelines-checkbox">
-                <input type="checkbox" defaultChecked={currentStage.retryCleanup} />
+                <input type="checkbox" defaultChecked={false} />
                 <span>Retry cleanup</span>
               </label>
               <label className="pipelines-checkbox">
-                <input type="checkbox" defaultChecked={currentStage.generateDiff} />
+                <input type="checkbox" defaultChecked={false} />
                 <span>Generate diff (post_stage)</span>
               </label>
             </div>
 
-            {currentStage.verifyFiles.length > 0 && (
+            {currentStage.verifyFiles?.length > 0 && (
               <div className="pipelines-field">
                 <label className="pipelines-label">Verify (file_exists_checks)</label>
                 <div className="pipelines-verify-list">
-                  {currentStage.verifyFiles.map((file) => (
+                  {currentStage.verifyFiles.map((file: string) => (
                     <div key={file} className="pipelines-verify-item">
                       <span className="pipelines-verify-file">{file}</span>
                       <button className="pipelines-verify-remove" type="button">

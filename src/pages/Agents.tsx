@@ -1,67 +1,43 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { fetchAgents } from '../api';
+
+const defaultAgents = [
+  {
+    id: 'devin',
+    label: 'Devin',
+    description: 'Stateless prompt-driven agent invoked through the Devin CLI.',
+    displayName: 'Devin',
+    fullDescription: 'Stateless prompt-driven agent invoked through the Devin CLI.',
+    reads: ['task.json', 'planner.requirements.md', 'implementation.diff.md', 'reviewer.review.md'],
+    writes: ['planner.requirements.md', 'planner.design.md', 'implementation.diff.md', 'reviewer.review.md'],
+    completionToken: 'VERDICT: GO/FAIL/SPEC_FAIL/ESCALATE',
+    promptTemplate: 'Use the Devin CLI in non-interactive mode to complete the current pipeline stage.',
+  },
+];
 
 const AgentsPage: React.FC = () => {
-  const [selectedAgent, setSelectedAgent] = useState('coder');
+  const [selectedAgent, setSelectedAgent] = useState('devin');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [agents, setAgents] = useState<any[]>(defaultAgents);
 
-  const agents = [
-    {
-      id: 'coder',
-      label: 'Code Executor',
-      description: 'Implements code from plan, runs tests',
-      displayName: 'Code Executor',
-      fullDescription: 'Implements code from plan, runs tests',
-      reads: ['task.md', 'planner.requirements.md', 'planner.design.md', 'reviewer.review.md'],
-      writes: ['coder.summary.md', 'implementation.diff.md'],
-      completionToken: '<<<CODER_COMPLETE>>>',
-      promptTemplate: 'You are now the CODER.\nRead the skill at: {{ skill_path }}/SKILL.md\n\n## Task Folder\n{{ task_folder }}\n\nRead these files for context: {{ read_files }}',
-    },
-    {
-      id: 'decomposer',
-      label: 'Decomposer',
-      description: 'Breaks down complex epics into individual tasks',
-      displayName: 'Decomposer',
-      fullDescription: 'Breaks down complex epics into individual tasks',
-      reads: ['epic.md', 'product_notes.md'],
-      writes: ['task.list.md', 'task.dependencies.md'],
-      completionToken: '<<<DECOMPOSER_COMPLETE>>>',
-      promptTemplate: '',
-    },
-    {
-      id: 'planner',
-      label: 'Planner',
-      description: 'Analyzes task and creates requirements and desi...',
-      displayName: 'Planner',
-      fullDescription: 'Analyzes task and creates requirements and design documents',
-      reads: ['task.md', 'repo.context.md'],
-      writes: ['planner.requirements.md', 'planner.design.md'],
-      completionToken: '<<<PLANNER_COMPLETE>>>',
-      promptTemplate: '',
-    },
-    {
-      id: 'reviewer',
-      label: 'Reviewer',
-      description: 'Reviews code against requirements, produces ve...',
-      displayName: 'Reviewer',
-      fullDescription: 'Reviews code against requirements, produces verdict',
-      reads: ['implementation.diff.md', 'planner.requirements.md'],
-      writes: ['reviewer.review.md'],
-      completionToken: '<<<REVIEWER_COMPLETE>>>',
-      promptTemplate: '',
-    },
-    {
-      id: 'shipper',
-      label: 'Shipper',
-      description: 'Bundles the final change and confirms delivery',
-      displayName: 'Shipper',
-      fullDescription: 'Bundles the final change and confirms delivery',
-      reads: ['reviewer.review.md', 'implementation.diff.md'],
-      writes: ['release.notes.md', 'delivery.summary.md'],
-      completionToken: '<<<SHIPPER_COMPLETE>>>',
-      promptTemplate: '',
-    },
-  ];
+  useEffect(() => {
+    fetchAgents().then((items) => {
+      if (Array.isArray(items) && items.length > 0) {
+        setAgents(items);
+      }
+    }).catch(() => setAgents(defaultAgents));
+  }, []);
 
-  const current = agents.find((a) => a.id === selectedAgent) || agents[0];
+  const filteredAgents = agents.filter((agent) => {
+    const query = searchTerm.trim().toLowerCase();
+    return (
+      agent.label.toLowerCase().includes(query) ||
+      agent.id.toLowerCase().includes(query) ||
+      agent.description.toLowerCase().includes(query)
+    );
+  });
+
+  const current = filteredAgents.find((a) => a.id === selectedAgent) || agents.find((a) => a.id === selectedAgent) || agents[0];
 
   return (
     <div className="agents-page">
@@ -74,9 +50,14 @@ const AgentsPage: React.FC = () => {
 
       <div className="agents-container">
         <div className="agents-sidebar">
-          <input className="agents-filter" placeholder="Filter agents..." />
+          <input
+            className="agents-filter"
+            placeholder="Filter agents..."
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+          />
           <div className="agents-list">
-            {agents.map((agent) => (
+            {filteredAgents.map((agent) => (
               <button
                 key={agent.id}
                 className={`agents-list-item ${selectedAgent === agent.id ? 'active' : ''}`}
@@ -105,8 +86,8 @@ const AgentsPage: React.FC = () => {
           <div className="agents-detail-field">
             <span className="agents-detail-label">Reads</span>
             <div className="agents-detail-tags">
-              {current.reads.length > 0 ? (
-                current.reads.map((file) => (
+              {current.reads?.length > 0 ? (
+                current.reads.map((file: string) => (
                   <span key={file} className="agents-detail-tag">
                     {file} <span className="agents-tag-close">×</span>
                   </span>
@@ -119,7 +100,17 @@ const AgentsPage: React.FC = () => {
 
           <div className="agents-detail-field">
             <span className="agents-detail-label">Writes</span>
-            <div className="agents-detail-placeholder">Type and press Enter...</div>
+            <div className="agents-detail-tags">
+              {current.writes?.length > 0 ? (
+                current.writes.map((file: string) => (
+                  <span key={file} className="agents-detail-tag">
+                    {file} <span className="agents-tag-close">×</span>
+                  </span>
+                ))
+              ) : (
+                <div className="agents-detail-placeholder">Type and press Enter...</div>
+              )}
+            </div>
           </div>
 
           <div className="agents-detail-field">

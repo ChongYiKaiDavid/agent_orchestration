@@ -1,13 +1,69 @@
 import React, { useState } from 'react';
+import { createTask } from '../api';
+
+interface DraftTask {
+  id: string;
+  title: string;
+  summary: string;
+}
 
 const Decompose: React.FC = () => {
   const [epicDescription, setEpicDescription] = useState('');
-  
-  const drafts = [
-    { id: '1', title: 'Release notes generator', tasks: '3 tasks', updated: '5m ago' },
-    { id: '2', title: 'Automated review follow-up', tasks: '4 tasks', updated: '18m ago' },
-    { id: '3', title: 'Merge readiness checklist', tasks: '2 tasks', updated: '1h ago' },
-  ];
+  const [drafts, setDrafts] = useState<DraftTask[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const handleDecompose = async () => {
+    setError(null);
+    setSuccess(null);
+
+    const trimmed = epicDescription.trim();
+    if (!trimmed) {
+      setError('Please enter an epic description first.');
+      return;
+    }
+
+    const sections = trimmed
+      .split(/\.|\n|\r|;/)
+      .map((segment) => segment.trim())
+      .filter(Boolean)
+      .slice(0, 5);
+
+    if (sections.length === 0) {
+      setError('Please provide a longer epic description so it can be decomposed.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const createdDrafts: DraftTask[] = [];
+      for (let index = 0; index < sections.length; index += 1) {
+        const title = `Task ${index + 1}: ${sections[index].slice(0, 60)}`;
+        const description = `${sections[index]}.`;
+        const task = await createTask({
+          title,
+          description,
+          pipeline: 'Plan → Code → Review',
+          priority: 'medium',
+        });
+
+        createdDrafts.push({
+          id: task.id,
+          title: task.title,
+          summary: task.description || 'No description',
+        });
+      }
+
+      setDrafts(createdDrafts);
+      setSuccess(`${createdDrafts.length} tasks created from the epic description.`);
+      setEpicDescription('');
+    } catch (err) {
+      setError((err as Error).message || 'Unable to decompose the epic.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="decompose-page">
@@ -25,17 +81,23 @@ const Decompose: React.FC = () => {
           />
         </label>
 
-        <button className="decompose-submit" type="button">
-          Decompose
+        <button className="decompose-submit" type="button" onClick={handleDecompose} disabled={loading}>
+          {loading ? 'Decomposing…' : 'Decompose'}
         </button>
+
+        {error && <div className="decompose-error" role="alert">{error}</div>}
+        {success && <div className="decompose-success" role="status">{success}</div>}
       </div>
       <div className="decompose-drafts">
         <h3 className="decompose-drafts-title">Drafts</h3>
-        <div style={{display:'grid',gap:12}}>
+        <div style={{ display: 'grid', gap: 12 }}>
+          {drafts.length === 0 && (
+            <div className="card">No drafts yet. Enter an epic description and click Decompose.</div>
+          )}
           {drafts.map((d) => (
             <div key={d.id} className="card">
-              <div style={{fontWeight:800}}>{d.title}</div>
-              <div style={{marginTop:6,color:'rgba(243,244,246,0.65)'}}>{d.tasks} · {d.updated}</div>
+              <div style={{ fontWeight: 800 }}>{d.title}</div>
+              <div style={{ marginTop: 6, color: 'rgba(243,244,246,0.65)' }}>{d.summary}</div>
             </div>
           ))}
         </div>

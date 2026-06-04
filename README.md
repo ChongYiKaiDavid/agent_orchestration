@@ -1,42 +1,73 @@
-# Frontend - AI Orchestration Dashboard
+# AI Agent Orchestration Frontend
 
-A modern dark mode React TypeScript frontend for an AI orchestration platform, built with Vite and styled with Tailwind CSS.
+A modern dark React TypeScript frontend dashboard for AI task orchestration, built with Vite and custom dark theme styling.
 
 ## Features
 
-- 🌙 **Dark Mode Design**: Elegant dark theme with purple, blue, and accent colors
-- 📱 **Responsive Layout**: Mobile-friendly sidebar navigation with adaptive layout
-- ⚡ **React + TypeScript**: Type-safe development with React 18
-- 🎨 **Tailwind CSS**: Modern utility-first styling with custom theme
-- 🚀 **Vite**: Lightning-fast build tool and dev server
-- 📊 **Dashboard Components**:
-  - Active Sessions
-  - Recent Tasks with status tracking
-  - Running Pods status
-  - Recent Events
-  - Recent Activity
+- 🌙 **Dark themed UI** with system status and task lifecycle views
+- 📱 **Responsive sidebar navigation** for fast section switching
+- ⚡ **React + TypeScript** frontend with state-driven page rendering
+- 🧪 **Unit tests** using Vitest and Testing Library
+- 🚀 **Vite build** with fast development and production output
 
 ## Project Structure
 
 ```
 src/
 ├── components/
-│   ├── layout/
-│   │   ├── Sidebar.tsx      # Left navigation sidebar
-│   │   ├── Header.tsx       # Top header with status info
-│   │   └── Layout.tsx       # Main layout wrapper
-│   └── sections/
-│       ├── ActiveSessions.tsx
-│       ├── RecentTasks.tsx
-│       ├── Pods.tsx
-│       ├── RecentEvents.tsx
-│       └── RecentActivity.tsx
-├── types/
-│   └── index.ts             # TypeScript type definitions
-├── App.tsx                  # Main application component
-├── index.css               # Tailwind CSS setup
-└── main.tsx                # React entry point
+│   └── layout/
+│       ├── Header.tsx
+│       ├── Layout.tsx
+│       └── Sidebar.tsx
+├── pages/
+│   ├── Activity.tsx
+│   ├── Agents.tsx
+│   ├── CreateTask.tsx
+│   ├── Dashboard.tsx
+│   ├── Decompose.tsx
+│   ├── Pipelines.tsx
+│   └── Settings.tsx
+├── __tests__/
+│   └── *.test.tsx
+├── App.tsx
+├── index.css
+├── main.tsx
+└── setupTests.ts
 ```
+
+## Installation
+
+```bash
+npm install
+```
+
+## Development
+
+```bash
+npm run dev
+```
+
+Open `http://localhost:5173` in your browser.
+
+## Build
+
+```bash
+npm run build
+```
+
+## Tests
+
+```bash
+npm test
+npm run test:watch
+npm run test:coverage
+```
+
+## Notes
+
+- The project uses custom CSS styling in `src/index.css` rather than Tailwind.
+- Backend API calls are mocked in the dashboard for local development.
+- The app preserves the current client architecture while adding test coverage for each page.
 
 ## Installation
 

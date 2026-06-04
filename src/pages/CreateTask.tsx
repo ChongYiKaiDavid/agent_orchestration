@@ -1,6 +1,22 @@
 import React, { useState } from 'react';
+import { createTask as postTask } from '../api';
 
-const CreateTask: React.FC = () => {
+type CreatedTask = {
+  title: string;
+  description?: string;
+  pipeline?: string;
+  repository?: string;
+  targetBranch?: string;
+  jiraTicket?: string;
+  bitbucketIssue?: string;
+  epicId?: string;
+};
+
+type CreateTaskProps = {
+  onCreate?: (task: CreatedTask) => void;
+};
+
+const CreateTask: React.FC<CreateTaskProps> = ({ onCreate }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [pipeline, setPipeline] = useState('Plan → Code → Review');
@@ -9,6 +25,43 @@ const CreateTask: React.FC = () => {
   const [jiraTicket, setJiraTicket] = useState('');
   const [bitbucketIssue, setBitbucketIssue] = useState('');
   const [epicId, setEpicId] = useState('');
+  const [createdTask, setCreatedTask] = useState<{ title: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCreate = async () => {
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
+      setError('Please enter a title before creating the task.');
+      return;
+    }
+
+    const payload: CreatedTask = {
+      title: trimmedTitle,
+      description: description || undefined,
+      pipeline,
+      repository: repository || undefined,
+      targetBranch: targetBranch || undefined,
+      jiraTicket: jiraTicket || undefined,
+      bitbucketIssue: bitbucketIssue || undefined,
+      epicId: epicId || undefined,
+    };
+
+    try {
+      await postTask(payload);
+      setCreatedTask({ title: trimmedTitle });
+      setError(null);
+      if (onCreate) onCreate(payload);
+      setTitle('');
+      setDescription('');
+      setRepository('');
+      setTargetBranch('');
+      setJiraTicket('');
+      setBitbucketIssue('');
+      setEpicId('');
+    } catch (err) {
+      setError((err as Error).message || 'Unable to create task.');
+    }
+  };
 
   return (
     <div className="create-task-page">
@@ -38,8 +91,8 @@ const CreateTask: React.FC = () => {
         </label>
 
         <label className="create-task-field">
-          <span className="create-task-label">Repository</span>
-          <input className="create-task-input" placeholder="e.g. bank-wallet-service main" value={repository} onChange={(event) => setRepository(event.target.value)} />
+          <span className="create-task-label">Repository URL</span>
+          <input className="create-task-input" placeholder="e.g. https://github.com/org/repo.git" value={repository} onChange={(event) => setRepository(event.target.value)} />
         </label>
 
         <label className="create-task-field">
@@ -62,9 +115,21 @@ const CreateTask: React.FC = () => {
           <input className="create-task-input" placeholder="e.g. https://bitbucket.company.com/projects/BANK/issues/123" value={epicId} onChange={(event) => setEpicId(event.target.value)} />
         </label>
 
-        <button className="create-task-submit" type="button">
+        <button className="create-task-submit" type="button" onClick={handleCreate}>
           Create & Queue
         </button>
+
+        {error && (
+          <div className="create-task-error" role="alert">
+            {error}
+          </div>
+        )}
+
+        {createdTask && (
+          <div className="create-task-success" role="status">
+            Task "{createdTask.title}" created and queued.
+          </div>
+        )}
       </div>
     </div>
   );

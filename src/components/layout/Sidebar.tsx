@@ -20,8 +20,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, selected, on
 
   const handleSelect = (id: string) => {
     if (onSelect) onSelect(id);
-    // close sidebar on mobile
-    if (onToggle) onToggle();
+    // close sidebar on mobile only if the menu is open
+    if (isOpen && onToggle) onToggle();
   };
 
   return (
