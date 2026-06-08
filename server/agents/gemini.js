@@ -43,18 +43,35 @@ async function getGeminiCommand() {
     return process.env.GEMINI_PATH;
   }
 
-  const defaultName = process.platform === 'win32' ? 'gemini.cmd' : 'gemini';
-  const found = await findExecutableInPath(defaultName);
-  return found || defaultName;
+  const names = process.platform === 'win32'
+    ? ['gemini.cmd', 'gemini.exe', 'Gemini.exe', 'gemini']
+    : ['gemini', 'Gemini'];
+
+  for (const name of names) {
+    const found = await findExecutableInPath(name);
+    if (found) return found;
+  }
+
+  return 'gemini';
+}
+
+function buildGeminiArgs(promptFile) {
+  if (process.env.GEMINI_ARGS) {
+    return process.env.GEMINI_ARGS.split(' ').map(arg =>
+      arg === '<PROMPT_FILE>' ? promptFile : arg
+    );
+  }
+  return ['--prompt-file', promptFile, '--print', '--no-interactive'];
 }
 
 export async function runGeminiStage({ prompt, stageId, workspace }) {
   const promptFile = await writePromptFile(workspace, prompt);
-  
   const command = await getGeminiCommand();
-  const args = ['--prompt-file', promptFile, '--print']; // Assumes Gemini has similar flags or modify as needed. Actually, Gemini CLI might take different args, let's assume it accepts prompt as input or file. I will use the same args as Devin for now unless specified otherwise. Let's look at how Gemini CLI is normally called if not known. I'll just use the same args assuming compatibility, or maybe just `gemini prompt.txt`.
+  const args = buildGeminiArgs(promptFile);
   const env = {
     ...process.env,
+    GEMINI_PERMISSION_MODE: process.env.GEMINI_PERMISSION_MODE || 'auto',
+    GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || '',
   };
 
   return new Promise((resolve) => {
@@ -136,5 +153,5 @@ export function buildStagePrompt(stage, task, previousArtifacts = [], repository
   lines.push('- Use VERDICT: <value> only when prompted.');
   lines.push('- If the stage cannot complete, explain why and stop.');
 
-  return lines.join('\n');
+  return lines.join('\\n');
 }
