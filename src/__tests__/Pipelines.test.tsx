@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import PipelinesPage from '../pages/Pipelines';
 
 describe('Pipelines page', () => {
@@ -8,12 +9,7 @@ describe('Pipelines page', () => {
     expect(screen.getByText(/Pipelines/i)).toBeInTheDocument();
     expect(screen.getByText(/Plan → Code → Review/i)).toBeInTheDocument();
   });
-});
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import PipelinesPage from '../pages/Pipelines';
 
-describe('Pipelines page', () => {
   test('switches between pipeline definitions and stage details', async () => {
     const user = userEvent.setup();
     render(<PipelinesPage />);

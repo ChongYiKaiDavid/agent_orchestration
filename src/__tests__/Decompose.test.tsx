@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import Decompose from '../pages/Decompose';
 
 describe('Decompose page', () => {
@@ -7,12 +8,7 @@ describe('Decompose page', () => {
     render(<Decompose />);
     expect(screen.getByText(/Drafts/i)).toBeInTheDocument();
   });
-});
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import Decompose from '../pages/Decompose';
 
-describe('Decompose page', () => {
   test('renders epic description form and draft list', async () => {
     const user = userEvent.setup();
     render(<Decompose />);

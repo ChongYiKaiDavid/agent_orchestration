@@ -1,4 +1,6 @@
 import express from 'express';
+import crypto from 'crypto';
+import path from 'path';
 import {
   createTask,
   getTaskById,
@@ -11,13 +13,81 @@ import {
   getPipeline,
   getAgentDefinitions,
   getPullRequestForExecution,
+  ensureTaskWorkspace,
 } from './engine.js';
+import { runDevinStage } from './agents/devin.js';
 
 const router = express.Router();
 
 router.get('/tasks', (req, res) => {
   const tasks = listTasks();
   res.json(tasks);
+});
+
+router.post('/tasks/decompose', express.json(), async (req, res) => {
+  const { epicDescription } = req.body;
+  if (!epicDescription) {
+    return res.status(400).json({ error: 'Missing required field: epicDescription' });
+  }
+
+  try {
+    const workspaceId = crypto.randomUUID();
+    const workspace = await ensureTaskWorkspace(workspaceId);
+    
+    const prompt = `
+Task: Decompose Epic
+Agent: Devin
+
+Epic Description:
+${epicDescription}
+
+Instructions:
+You are an expert technical project manager. Your job is to decompose the above epic description into 2 to 5 smaller, manageable subtasks. 
+Each subtask should have a clear title and a detailed description.
+
+Output your response ONLY as a valid JSON array of objects. Do not include markdown code blocks or any other text.
+Format example:
+[
+  { "title": "Subtask 1 title", "description": "Subtask 1 description" },
+  { "title": "Subtask 2 title", "description": "Subtask 2 description" }
+]
+`;
+
+    const result = await runDevinStage({ prompt, stageId: 'decompose', workspace });
+    
+    let subtasks = [];
+    try {
+      // Find JSON array in the output
+      const jsonStart = result.output.indexOf('[');
+      const jsonEnd = result.output.lastIndexOf(']') + 1;
+      if (jsonStart !== -1 && jsonEnd !== -1) {
+        const jsonString = result.output.substring(jsonStart, jsonEnd);
+        subtasks = JSON.parse(jsonString);
+      } else {
+        throw new Error("No JSON array found in output");
+      }
+    } catch (e) {
+      console.error("Failed to parse Devin output as JSON:", result.output);
+      // Fallback if parsing fails
+      subtasks = [{ title: "Decomposed task (fallback)", description: epicDescription }];
+    }
+
+    const createdTasks = [];
+    for (const subtask of subtasks) {
+      const task = createTask({
+        title: subtask.title || 'Untitled Subtask',
+        description: subtask.description || '',
+        pipeline: 'Plan → Code → Review',
+        priority: 'medium',
+      });
+      createdTasks.push(task);
+    }
+
+    res.json(createdTasks);
+  } catch (err) {
+    console.error('Error during decomposition:', err);
+    res.status(500).json({ error: 'Internal server error during decomposition' });
+  }
 });
 
 router.post('/tasks', express.json(), (req, res) => {

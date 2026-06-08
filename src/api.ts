@@ -28,6 +28,15 @@ export async function createTask(payload: TaskCreatePayload) {
   return parseJson(response);
 }
 
+export async function decomposeEpic(epicDescription: string) {
+  const response = await fetch('/api/tasks/decompose', {
+    method: 'POST',
+    headers: defaultHeaders,
+    body: JSON.stringify({ epicDescription }),
+  });
+  return parseJson(response);
+}
+
 export async function fetchTasks() {
   const response = await fetch('/api/tasks');
   return parseJson(response);

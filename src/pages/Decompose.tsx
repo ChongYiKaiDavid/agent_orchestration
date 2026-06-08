@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { createTask } from '../api';
+import { decomposeEpic } from '../api';
 
 interface DraftTask {
   id: string;
@@ -24,38 +24,15 @@ const Decompose: React.FC = () => {
       return;
     }
 
-    const sections = trimmed
-      .split(/\.|\n|\r|;/)
-      .map((segment) => segment.trim())
-      .filter(Boolean)
-      .slice(0, 5);
-
-    if (sections.length === 0) {
-      setError('Please provide a longer epic description so it can be decomposed.');
-      return;
-    }
-
     setLoading(true);
     try {
-      const createdDrafts: DraftTask[] = [];
-      for (let index = 0; index < sections.length; index += 1) {
-        const title = `Task ${index + 1}: ${sections[index].slice(0, 60)}`;
-        const description = `${sections[index]}.`;
-        const task = await createTask({
-          title,
-          description,
-          pipeline: 'Plan → Code → Review',
-          priority: 'medium',
-        });
+      const createdDrafts = await decomposeEpic(trimmed);
 
-        createdDrafts.push({
-          id: task.id,
-          title: task.title,
-          summary: task.description || 'No description',
-        });
-      }
-
-      setDrafts(createdDrafts);
+      setDrafts(createdDrafts.map((task: any) => ({
+        id: task.id,
+        title: task.title,
+        summary: task.description || 'No description',
+      })));
       setSuccess(`${createdDrafts.length} tasks created from the epic description.`);
       setEpicDescription('');
     } catch (err) {
