@@ -18,7 +18,7 @@ To make this magic happen, the application is split into three separate parts th
 3. **The Background Worker:** An automated system that constantly checks the database for new tasks. When it finds one, it claims it, prepares an isolated workspace folder, and runs the AI agent (named "devin") through the pipeline stages.
 
 ---
-
+cd "C:\Users\Gary Chong\Downloads\Telegram Desktop\agent_orchestration\agent_orchestration"
 ## 2. Step-by-Step: How to Start the Application
 
 Because this project relies on three distinct pieces working together, you must start all three in separate terminal windows.
