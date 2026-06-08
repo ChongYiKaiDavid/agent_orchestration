@@ -60,7 +60,7 @@ const DashboardPage: React.FC = () => {
     ...task,
     stage: statusToStage(task),
     project: task.repository || 'Unknown repository',
-    agent: task.pipeline_id === 'plan-code-review' ? 'Devin' : 'Devin',
+    agent: task.pipeline_id === 'gemini-code-only' ? 'Gemini CLI' : 'Devin',
     timestamp: new Date(task.updated_at).toLocaleString(),
     priority: task.priority ? task.priority.charAt(0).toUpperCase() + task.priority.slice(1) : 'Medium',
   }));
@@ -77,7 +77,7 @@ const DashboardPage: React.FC = () => {
     const matchesStatus = statusFilter === 'All statuses' || taskStatus === statusFilter;
     const matchesPriority = priority === 'All priorities' || task.priority === priority;
 
-    const matchesPipeline = pipeline === 'All pipelines' || (pipeline === 'Code Only' && task.pipeline_id === 'code-only') || (pipeline === 'Plan → Code → Review' && task.pipeline_id === 'plan-code-review');
+    const matchesPipeline = pipeline === 'All pipelines' || (pipeline === 'Code Only' && task.pipeline_id === 'code-only') || (pipeline === 'Plan → Code → Review' && task.pipeline_id === 'plan-code-review') || (pipeline === 'Gemini Code Only' && task.pipeline_id === 'gemini-code-only');
 
     return matchesSearch && matchesStatus && matchesPriority && matchesPipeline;
   });
@@ -117,6 +117,7 @@ const DashboardPage: React.FC = () => {
               <option value="All pipelines">All pipelines</option>
               <option value="Code Only">Code Only</option>
               <option value="Plan → Code → Review">Plan → Code → Review</option>
+              <option value="Gemini Code Only">Gemini Code Only</option>
             </select>
           </label>
 

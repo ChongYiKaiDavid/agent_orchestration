@@ -19,7 +19,7 @@ type CreateTaskProps = {
 const CreateTask: React.FC<CreateTaskProps> = ({ onCreate }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [pipeline, setPipeline] = useState('Plan → Code → Review');
+  const [pipeline, setPipeline] = useState('plan-code-review');
   const [repository, setRepository] = useState('');
   const [targetBranch, setTargetBranch] = useState('');
   const [jiraTicket, setJiraTicket] = useState('');
@@ -85,8 +85,9 @@ const CreateTask: React.FC<CreateTaskProps> = ({ onCreate }) => {
             value={pipeline}
             onChange={(event) => setPipeline(event.target.value)}
           >
-            <option value="Code Only">Code Only</option>
-            <option value="Plan → Code → Review">Plan → Code → Review</option>
+            <option value="code-only">Code Only</option>
+            <option value="plan-code-review">Plan → Code → Review</option>
+            <option value="gemini-code-only">Gemini Code Only</option>
           </select>
         </label>
 

@@ -7,17 +7,23 @@ const defaultPipelines = [
     id: 'code-only',
     name: 'Code Only',
     builtIn: true,
-    stages: [{ id: 'coding', name: 'Coding', agent: 'Devin' }],
+    stages: [{ id: 'coding', name: 'Coding', agent: 'devin' }],
   },
   {
     id: 'plan-code-review',
     name: 'Plan → Code → Review',
     builtIn: true,
     stages: [
-      { id: 'planning', name: 'Planning', agent: 'Devin' },
-      { id: 'coding', name: 'Coding', agent: 'Devin' },
-      { id: 'reviewing', name: 'Reviewing', agent: 'Devin' },
+      { id: 'planning', name: 'Planning', agent: 'devin' },
+      { id: 'coding', name: 'Coding', agent: 'devin' },
+      { id: 'reviewing', name: 'Reviewing', agent: 'devin' },
     ],
+  },
+  {
+    id: 'gemini-code-only',
+    name: 'Gemini Code Only',
+    builtIn: true,
+    stages: [{ id: 'coding', name: 'Coding', agent: 'gemini' }],
   },
 ];
 
@@ -122,8 +128,9 @@ const PipelinesPage: React.FC = () => {
 
               <div className="pipelines-field">
                 <label className="pipelines-label">Agent</label>
-                <select className="pipelines-select">
-                  <option>{currentStage.agent || 'Unknown'}</option>
+                <select className="pipelines-select" value={currentStage.agent.toLowerCase()} disabled>
+                  <option value="devin">Devin</option>
+                  <option value="gemini">Gemini CLI</option>
                 </select>
               </div>
             </div>

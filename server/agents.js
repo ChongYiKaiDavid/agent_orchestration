@@ -3,9 +3,23 @@ export const agents = [
     id: 'devin',
     label: 'Devin',
     description: 'Stateless prompt-driven agent invoked through the Devin CLI.',
+    displayName: 'Devin',
+    fullDescription: 'Stateless prompt-driven agent invoked through the Devin CLI.',
     reads: ['task.json', 'planner.requirements.md', 'implementation.diff.md', 'reviewer.review.md'],
     writes: ['planner.requirements.md', 'planner.design.md', 'implementation.diff.md', 'reviewer.review.md'],
+    completionToken: 'VERDICT: GO/FAIL/SPEC_FAIL/ESCALATE',
     promptTemplate: 'Use Devin to complete the current pipeline stage based on task inputs and prior artifacts.',
+  },
+  {
+    id: 'gemini',
+    label: 'Gemini CLI',
+    description: 'Stateless prompt-driven agent invoked through the Gemini CLI.',
+    displayName: 'Gemini CLI',
+    fullDescription: 'Stateless prompt-driven agent invoked through the Gemini CLI to interactively complete pipeline stages.',
+    reads: ['task.json', 'planner.requirements.md', 'implementation.diff.md', 'reviewer.review.md'],
+    writes: ['planner.requirements.md', 'planner.design.md', 'implementation.diff.md', 'reviewer.review.md'],
+    completionToken: 'VERDICT: GO/FAIL/SPEC_FAIL/ESCALATE',
+    promptTemplate: 'Use Gemini CLI to complete the current pipeline stage based on task inputs and prior artifacts.',
   },
 ];
 

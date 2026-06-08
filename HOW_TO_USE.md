@@ -44,18 +44,9 @@ npm run server
 * **What this does:** It starts the background API server. Without this, your frontend cannot save tasks to the database. Leave this terminal open.
 
 ### Step 4: Start the Background Worker (Terminal 3)
-Open a **new, third terminal window** in the `agent_orchestration` folder.
-
-Because the real AI agent tool (`devin`) might not be installed on your computer, we need to tell the worker to "pretend" the AI was successful by passing an environment variable before we start it. Run the command that matches your operating system:
-
-**For Windows (PowerShell):**
-```powershell
-$env:MOCK_DEVIN_OUTPUT="VERDICT: GO"
-npm run worker
-```
-**For Mac/Linux:**
+Open a **new, third terminal window** in the `agent_orchestration` folder and run:
 ```bash
-MOCK_DEVIN_OUTPUT="VERDICT: GO" npm run worker
+npm run worker
 ```
 * **What this does:** It starts the background worker. It will immediately begin looking for queued tasks in the database and executing them.
 

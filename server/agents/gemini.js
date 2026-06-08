@@ -38,24 +38,23 @@ async function findExecutableInPath(name) {
   return null;
 }
 
-async function getDevinCommand() {
-  if (process.env.DEVIN_PATH) {
-    return process.env.DEVIN_PATH;
+async function getGeminiCommand() {
+  if (process.env.GEMINI_PATH) {
+    return process.env.GEMINI_PATH;
   }
 
-  const defaultName = process.platform === 'win32' ? 'devin.exe' : 'devin';
+  const defaultName = process.platform === 'win32' ? 'gemini.cmd' : 'gemini';
   const found = await findExecutableInPath(defaultName);
   return found || defaultName;
 }
 
-export async function runDevinStage({ prompt, stageId, workspace }) {
+export async function runGeminiStage({ prompt, stageId, workspace }) {
   const promptFile = await writePromptFile(workspace, prompt);
   
-  const command = await getDevinCommand();
-  const args = ['--prompt-file', promptFile, '--print'];
+  const command = await getGeminiCommand();
+  const args = ['--prompt-file', promptFile, '--print']; // Assumes Gemini has similar flags or modify as needed. Actually, Gemini CLI might take different args, let's assume it accepts prompt as input or file. I will use the same args as Devin for now unless specified otherwise. Let's look at how Gemini CLI is normally called if not known. I'll just use the same args assuming compatibility, or maybe just `gemini prompt.txt`.
   const env = {
     ...process.env,
-    DEVIN_PERMISSION_MODE: process.env.DEVIN_PERMISSION_MODE || 'auto',
   };
 
   return new Promise((resolve) => {
@@ -84,7 +83,7 @@ export async function runDevinStage({ prompt, stageId, workspace }) {
       resolve({
         exitCode: 1,
         output: '',
-        logs: `Failed to start Devin CLI at '${command}': ${error.message}`,
+        logs: `Failed to start Gemini CLI at '${command}': ${error.message}`,
       });
     });
   });
@@ -93,7 +92,7 @@ export async function runDevinStage({ prompt, stageId, workspace }) {
 export function buildStagePrompt(stage, task, previousArtifacts = [], repositoryPath = null) {
   const lines = [
     `Stage: ${stage.name}`,
-    `Agent: Devin`,
+    `Agent: Gemini`,
     `Task: ${task.title}`,
     `Repository: ${task.repository || 'not specified'}`,
     `Target branch: ${task.target_branch || 'not specified'}`,

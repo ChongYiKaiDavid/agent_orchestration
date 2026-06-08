@@ -4,7 +4,8 @@ import crypto from 'crypto';
 import { spawnSync } from 'child_process';
 import db from './db.js';
 import { getPipeline as getPipelineDefinition, listPipelines } from './pipelines.js';
-import { runDevinStage, buildStagePrompt } from './agents/devin.js';
+import { runDevinStage, buildStagePrompt as buildDevinStagePrompt } from './agents/devin.js';
+import { runGeminiStage, buildStagePrompt as buildGeminiStagePrompt } from './agents/gemini.js';
 import { listAgents } from './agents.js';
 
 const workspaceRoot = path.resolve(process.cwd(), process.env.TEST_WORKSPACE_ROOT || 'server/workspaces');
@@ -212,7 +213,15 @@ export async function processTask(task) {
   for (const stage of pipeline.stages) {
     const stageId = `${executionId}-${stage.id}`;
     const stageFolder = await ensureWorkspace(task.id, stage.id);
-    const prompt = buildStagePrompt(stage, task, previousOutputs, repositoryPath);
+    
+    let prompt;
+    let result;
+    
+    if (stage.agent === 'gemini') {
+      prompt = buildGeminiStagePrompt(stage, task, previousOutputs, repositoryPath);
+    } else {
+      prompt = buildDevinStagePrompt(stage, task, previousOutputs, repositoryPath);
+    }
 
     db.prepare(`
       INSERT INTO stage_executions (id, execution_id, stage_name, status, input_data, started_at)
@@ -226,7 +235,12 @@ export async function processTask(task) {
       details: JSON.stringify({ stage: stage.id }),
     });
 
-    const result = await runDevinStage({ prompt, stageId: stage.id, workspace: stageFolder });
+    if (stage.agent === 'gemini') {
+      result = await runGeminiStage({ prompt, stageId: stage.id, workspace: stageFolder });
+    } else {
+      result = await runDevinStage({ prompt, stageId: stage.id, workspace: stageFolder });
+    }
+
     const output = result.output || ''; 
     const logs = [result.logs, output].filter(Boolean).join('\n');
     const verdictMatch = output.match(/VERDICT:\s*(GO|FAIL|SPEC_FAIL|ESCALATE)/i);
@@ -297,18 +311,48 @@ export async function processTask(task) {
     db.prepare('UPDATE executions SET status = ?, completed_at = ? WHERE id = ?').run('completed', now(), executionId);
 
     if (finalVerdict === 'GO' || pipeline.stages[pipeline.stages.length - 1].id !== 'reviewing') {
+      let prUrl = `https://example.com/${task.repository || 'repo'}/pull/unknown`;
+      let prNumber = `branch-task-${task.id.slice(0, 8)}`;
+
+      if (repositoryPath) {
+        try {
+          const branchName = `task-${task.id.slice(0, 8)}`;
+          
+          // Check if there are changes
+          const statusResult = spawnSync('git', ['status', '--porcelain'], { cwd: repositoryPath, encoding: 'utf8' });
+          
+          if (statusResult.stdout && statusResult.stdout.trim() !== '') {
+            spawnSync('git', ['checkout', '-b', branchName], { cwd: repositoryPath });
+            spawnSync('git', ['add', '.'], { cwd: repositoryPath });
+            spawnSync('git', ['commit', '-m', `Agent update for task: ${task.title}`], { cwd: repositoryPath });
+            const pushResult = spawnSync('git', ['push', '-u', 'origin', branchName], { cwd: repositoryPath, encoding: 'utf8' });
+            
+            if (pushResult.status === 0) {
+              prNumber = branchName;
+              prUrl = task.repository ? task.repository.replace('.git', '') + `/tree/${branchName}` : prUrl;
+            } else {
+              console.error(`Git push failed: ${pushResult.stderr}`);
+            }
+          } else {
+            console.log('No changes detected by agent, skipping push.');
+          }
+        } catch (e) {
+          console.error('Git PR operations failed', e);
+        }
+      }
+
       const prId = crypto.randomUUID();
       db.prepare(`
         INSERT INTO pull_requests (id, execution_id, repo, pr_number, url, status)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(prId, executionId, task.repository || 'unknown', `PR-${Math.floor(Math.random() * 10000)}`, `https://example.com/${task.repository || 'repo'}/pull/${Math.floor(Math.random() * 10000)}`, 'open');
+      `).run(prId, executionId, task.repository || 'unknown', prNumber, prUrl, 'open');
 
       db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run('pr_created', now(), task.id);
       recordActivity({
         taskId: task.id,
         event_type: 'pipeline_complete',
-        message: 'Task pipeline completed and pull request created.',
-        details: JSON.stringify({ prCreated: true }),
+        message: 'Task pipeline completed and changes pushed to branch.',
+        details: JSON.stringify({ prCreated: true, branch: prNumber }),
       });
     } else {
       db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run('completed', now(), task.id);

@@ -66,7 +66,6 @@ npm run test:coverage
 ## Notes
 
 - The project uses custom CSS styling in `src/index.css` rather than Tailwind.
-- Backend API calls are mocked in the dashboard for local development.
 - The app preserves the current client architecture while adding test coverage for each page.
 
 ## Installation
