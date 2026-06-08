@@ -14,6 +14,7 @@ import {
   getAgentDefinitions,
   getPullRequestForExecution,
   ensureTaskWorkspace,
+  getAutoSelection,
 } from './engine.js';
 import { runDevinStage } from './agents/devin.js';
 
@@ -22,6 +23,16 @@ const router = express.Router();
 router.get('/tasks', (req, res) => {
   const tasks = listTasks();
   res.json(tasks);
+});
+
+// NEW: Auto-select pipeline and agent for a task (preview)
+router.post('/tasks/auto-select', express.json(), (req, res) => {
+  const { title, description, repository } = req.body;
+  if (!title) {
+    return res.status(400).json({ error: 'Missing required field: title' });
+  }
+  const selection = getAutoSelection({ title, description, repository });
+  res.json(selection);
 });
 
 router.post('/tasks/decompose', express.json(), async (req, res) => {
@@ -57,7 +68,6 @@ Format example:
     
     let subtasks = [];
     try {
-      // Find JSON array in the output
       const jsonStart = result.output.indexOf('[');
       const jsonEnd = result.output.lastIndexOf(']') + 1;
       if (jsonStart !== -1 && jsonEnd !== -1) {
@@ -68,16 +78,16 @@ Format example:
       }
     } catch (e) {
       console.error("Failed to parse Devin output as JSON:", result.output);
-      // Fallback if parsing fails
       subtasks = [{ title: "Decomposed task (fallback)", description: epicDescription }];
     }
 
     const createdTasks = [];
     for (const subtask of subtasks) {
+      // Auto-select pipeline for each subtask
       const task = createTask({
         title: subtask.title || 'Untitled Subtask',
         description: subtask.description || '',
-        pipeline: 'Plan → Code → Review',
+        pipeline: 'auto',
         priority: 'medium',
       });
       createdTasks.push(task);
@@ -94,6 +104,11 @@ router.post('/tasks', express.json(), (req, res) => {
   const payload = req.body;
   if (!payload || !payload.title) {
     return res.status(400).json({ error: 'Missing required field: title' });
+  }
+
+  // Auto-select pipeline if not specified or set to 'auto'
+  if (!payload.pipeline || payload.pipeline === 'auto') {
+    payload.pipeline = 'auto';
   }
 
   const task = createTask(payload);
