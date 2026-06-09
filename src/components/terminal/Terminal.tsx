@@ -48,14 +48,38 @@ export const Terminal: React.FC<TerminalProps> = ({ taskId, mode = 'agent' }) =>
 
     socketRef.current = socket;
 
-    // ── Agent log streaming ──────────────────────────────────────────────────
-    if (mode === 'agent' || mode === 'both') {
-      // Subscribe to task-specific log stream
+    socket.on('connect', () => {
+      term.writeln(`\x1b[1;32m[Socket connected]\x1b[0m\r\n`);
       if (taskId) {
         socket.emit('join-task', { taskId });
+        term.writeln(`\x1b[1;33m[Joining task room: ${taskId}]\x1b[0m\r\n`);
       }
+    });
+
+    socket.on('disconnect', () => {
+      term.writeln(`\x1b[1;31m[Socket disconnected]\x1b[0m\r\n`);
+    });
+
+    socket.on('connect_error', (err) => {
+      term.writeln(`\x1b[1;31m[Connection error: ${err.message}]\x1b[0m\r\n`);
+    });
+
+    // Catch-all: log every event that arrives (excluding high-frequency terminal-output)
+    socket.onAny((eventName, ...args) => {
+      if (eventName === 'terminal-output') return;
+      term.writeln(`\x1b[1;90m[SOCKET EVENT: ${eventName}]\x1b[0m\r\n`);
+    });
+
+    // ── Agent log streaming ──────────────────────────────────────────────────
+    if (mode === 'agent' || mode === 'both') {
+      socket.on('joined-task', ({ taskId: joinedId }: { taskId: string }) => {
+        term.writeln(`\x1b[1;32m[Joined task room: ${joinedId}]\x1b[0m\r\n`);
+      });
 
       socket.on('agent-log', (data: { taskId: string; stageId: string; type: string; data: string; end: boolean }) => {
+        term.writeln(`\x1b[1;36m[DEBUG rcvd log for ${data.taskId}]\x1b[0m\r\n`);
+        // Only display logs for the task this terminal is tracking
+        if (taskId && data.taskId !== taskId) return;
         // data.data is already ANSI-escaped by the Flask server
         term.write(data.data);
         if (data.end) {

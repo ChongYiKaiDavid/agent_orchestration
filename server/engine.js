@@ -3,10 +3,11 @@ import path from 'path';
 import crypto from 'crypto';
 import { spawn, spawnSync } from 'child_process';
 import db from './db.js';
-import { getPipeline as getPipelineDefinition, listPipelines } from './pipelines.js';
+import { getPipeline, listPipelines } from './pipelines.js';
 import { runDevinStage, buildStagePrompt as buildDevinStagePrompt } from './agents/devin.js';
 import { runGeminiStage, buildStagePrompt as buildGeminiStagePrompt } from './agents/gemini.js';
 import { listAgents } from './agents.js';
+import { autoSelectPipelineAndAgent } from './auto-selector.js';
 import { io } from 'socket.io-client';
 
 const workspaceRoot = path.resolve(process.cwd(), process.env.TEST_WORKSPACE_ROOT || 'server/workspaces');
@@ -16,34 +17,64 @@ const workspaceRoot = path.resolve(process.cwd(), process.env.TEST_WORKSPACE_ROO
 // ──────────────────────────────────────────────────────────────────────────────
 
 let _logSocket = null;
+let _pendingResolves = [];
+let _socketInstanceCount = 0;
 
 function getLogSocket() {
-  if (_logSocket && _logSocket.connected) return _logSocket;
+  if (_logSocket) {
+    if (_logSocket.connected) return _logSocket;
+    // Socket exists but disconnected — call connect() to reconnect it
+    _logSocket.connect();
+    return _logSocket;
+  }
 
   const flaskUrl = process.env.FLASK_SOCKET_URL || 'http://localhost:5002';
   _logSocket = io(flaskUrl, {
     transports: ['websocket'],
-    autoConnect: true,
+    autoConnect: false,
   });
+  _socketInstanceCount++;
+  console.log(`[log-streamer] ★ Created socket #${_socketInstanceCount}`);
 
   _logSocket.on('connect', () => {
-    console.log('[log-streamer] Connected to Flask SocketIO');
+    console.log(`[log-streamer] ★★★ CONNECT fired (socket #${_socketInstanceCount})`);
+    _pendingResolves.forEach((r) => r(_logSocket));
+    _pendingResolves = [];
   });
 
   _logSocket.on('disconnect', () => {
-    console.log('[log-streamer] Disconnected from Flask SocketIO');
+    console.log('[log-streamer] ✗ DISCONNECT fired');
   });
 
+  _logSocket.on('connect_error', (err) => {
+    console.log(`[log-streamer] ✗ CONNECT_ERROR: ${err.message}`);
+  });
+
+  console.log('[log-streamer] Calling socket.connect()...');
+  _logSocket.connect();
   return _logSocket;
 }
 
-function streamLog(taskId, stageId, type, data, end = false) {
+function waitForSocket() {
+  const socket = getLogSocket();
+  if (socket.connected) return Promise.resolve(socket);
+
+  return new Promise((resolve) => {
+    _pendingResolves.push(resolve);
+  });
+}
+
+async function streamLog(taskId, stageId, type, data, end = false) {
   try {
-    getLogSocket().emit('agent-log', { taskId, stageId, type, data, end });
+    await waitForSocket();
+    _logSocket.emit('agent-log', { taskId, stageId, type, data, end });
   } catch (err) {
-    // Non-fatal: log locally if the stream fails
     console.error('[log-streamer] Failed to emit log:', err.message);
   }
+}
+
+function streamLogSync(taskId, stageId, type, data, end = false) {
+  streamLog(taskId, stageId, type, data, end).catch(() => {});
 }
 
 function now() {
@@ -101,7 +132,7 @@ export function normalizePipelineId(value) {
 }
 export function createTask(payload) {
   const id = crypto.randomUUID();
-  const pipelineId = normalizePipelineId(payload.pipeline, payload);
+  const pipelineId = normalizePipelineId(payload.pipeline);
   const insert = db.prepare(`
     INSERT INTO tasks (id, title, description, status, priority, repository, target_branch, pipeline_id, retry_count, created_at, updated_at)
     VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, 0, ?, ?)
@@ -180,7 +211,20 @@ export async function deleteTask(taskId) {
 }
 
 export async function processTask(task) {
-  const pipeline = getPipeline(task.pipeline_id);
+  console.log('[processTask] START');
+  // Auto-select the best pipeline and agent based on task content
+  const auto = autoSelectPipelineAndAgent(task);
+  console.log('[processTask] autoSelect done:', auto.pipelineId);
+
+  recordActivity({
+    taskId: task.id,
+    event_type: 'agent_assigned',
+    message: `Auto-selected ${auto.selectedAgent} with pipeline '${auto.pipelineId}': ${auto.reasoning.why}`,
+    details: JSON.stringify({ selectedAgent: auto.selectedAgent, pipelineId: auto.pipelineId, reasoning: auto.reasoning }),
+  });
+
+  const pipeline = getPipeline(auto.pipelineId);
+  console.log('[processTask] pipeline:', pipeline ? pipeline.name : 'NOT FOUND');
   if (!pipeline) {
     recordActivity({
       taskId: task.id,
@@ -191,8 +235,10 @@ export async function processTask(task) {
     return;
   }
   const taskWorkspace = await ensureTaskWorkspace(task.id);
+  console.log('[processTask] workspace:', taskWorkspace);
   let repositoryPath = null;
   if (task.repository) {
+    console.log('[processTask] cloning repo:', task.repository);
     if (!looksLikeGitRepo(task.repository)) {
       recordActivity({
         taskId: task.id,
@@ -222,19 +268,22 @@ export async function processTask(task) {
       db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run('failed', now(), task.id);
       return;
     }
+  } else {
+    console.log('[processTask] no repository — skipping clone');
   }
   const executionId = crypto.randomUUID();
   db.prepare(`
     INSERT INTO executions (id, task_id, pipeline_id, status, started_at)
     VALUES (?, ?, ?, 'running', ?)
   `).run(executionId, task.id, pipeline.id, now());
+  console.log('[processTask] execution created, about to stream acceptance log');
   recordActivity({
     taskId: task.id,
     event_type: 'stage_started',
     message: `Task execution started for pipeline '${pipeline.name}'.`,
   });
 
-  streamLog(task.id, 'init', 'system', `\x1b[1;35m>>> Task accepted — pipeline: ${pipeline.name}\x1b[0m\r\n`);
+  await streamLog(task.id, 'init', 'system', `\x1b[1;35m>>> Task accepted — pipeline: ${pipeline.name}\x1b[0m\r\n`);
 
   let previousOutputs = [];
   let finalVerdict = null;
@@ -262,7 +311,7 @@ export async function processTask(task) {
       details: JSON.stringify({ stage: stage.id }),
     });
 
-    streamLog(task.id, stage.id, 'system', `\x1b[1;34m>>> Starting stage: ${stage.name}\x1b[0m`);
+    await streamLog(task.id, stage.id, 'system', `\x1b[1;34m>>> Starting stage: ${stage.name}\x1b[0m`);
 
     const stageLogId = stage.id;
     if (stage.agent === 'gemini') {
@@ -270,20 +319,20 @@ export async function processTask(task) {
         prompt,
         stageId: stage.id,
         workspace: stageFolder,
-        onStdout: (chunk) => streamLog(task.id, stageLogId, 'stdout', chunk),
-        onStderr: (chunk) => streamLog(task.id, stageLogId, 'stderr', chunk),
+        onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
+        onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
       });
     } else {
       result = await runDevinStage({
         prompt,
         stageId: stage.id,
         workspace: stageFolder,
-        onStdout: (chunk) => streamLog(task.id, stageLogId, 'stdout', chunk),
-        onStderr: (chunk) => streamLog(task.id, stageLogId, 'stderr', chunk),
+        onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
+        onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
       });
     }
 
-    streamLog(task.id, stageLogId, 'system', `\x1b[1;32m>>> Stage complete (exit ${result.exitCode})\x1b[0m`, true);
+    await streamLog(task.id, stageLogId, 'system', `\x1b[1;32m>>> Stage complete (exit ${result.exitCode})\x1b[0m`, true);
 
     const output = result.output || ''; 
     const logs = [result.logs, output].filter(Boolean).join('\n');
@@ -396,6 +445,8 @@ export async function processTask(task) {
 export function getPipelineDefinitions() {
   return listPipelines();
 }
+
+export { getPipeline } from './pipelines.js';
 
 export function getAutoSelection(task) { return autoSelectPipelineAndAgent(task); }
 

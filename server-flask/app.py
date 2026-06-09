@@ -34,10 +34,11 @@ def on_agent_log(data):
           "stageId": "planning|coding|reviewing",
           "type":    "stdout" | "stderr" | "system",
           "data":    "log message string",
-          "end":     false  # optional; if true, signals stage finished
+          "end":     false
         }
 
-    The client joins room = taskId so each task dashboard gets its own feed.
+    Each client joins room = taskId before receiving logs.
+    We emit to room=taskId so only sockets in that room receive the event.
     """
     task_id = data.get("taskId") or request.sid
     stage_id = data.get("stageId", "")
@@ -47,31 +48,46 @@ def on_agent_log(data):
 
     prefix = {
         "stdout": "",
-        "stderr": "\x1b[31m",   # red
-        "system": "\x1b[33m",   # yellow
+        "stderr": "\x1b[31m",
+        "system": "\x1b[33m",
     }.get(log_type, "")
 
     suffix = "\x1b[0m" if prefix else ""
 
     formatted = f"\x1b[36m[{stage_id}]\x1b[0m {prefix}{chunk}{suffix}"
 
-    # Emit to every socket in the taskId room
-    socketio.emit("agent-log", {
-        "taskId": task_id,
-        "stageId": stage_id,
-        "type": log_type,
-        "data": formatted,
-        "end": is_end,
-    }, room=task_id)
+    # Emit to the taskId room so only clients tracking this task receive logs.
+    # If taskId is the Flask sid (PTY mode), emit globally.
+    emit_target = task_id if task_id != request.sid else None
+    if emit_target:
+        socketio.emit("agent-log", {
+            "taskId": task_id,
+            "stageId": stage_id,
+            "type": log_type,
+            "data": formatted,
+            "end": is_end,
+        }, room=emit_target)
+        print(f"[DEBUG] agent-log -> room {emit_target}")
+    else:
+        socketio.emit("agent-log", {
+            "taskId": task_id,
+            "stageId": stage_id,
+            "type": log_type,
+            "data": formatted,
+            "end": is_end,
+        })
+        print(f"[DEBUG] agent-log -> global (sid fallback)")
 
 
 @socketio.on("join-task")
 def on_join_task(data):
-    """Client requests to subscribe to a task's log stream."""
+    """Client requests to join a task room for log delivery."""
     task_id = data.get("taskId")
     if task_id:
+        # Client should join the task room so they receive broadcasts for that task.
         socketio.server.enter_room(request.sid, task_id)
-        emit("joined-task", {"taskId": task_id})
+        print(f"[DEBUG] join-task: socket {request.sid} joined room {task_id}")
+    emit("joined-task", {"taskId": task_id})
 
 
 
