@@ -7,7 +7,14 @@ async function runWorker() {
       const task = claimQueuedTask();
       if (task) {
         console.log(`Worker claimed task ${task.id}`);
-        await processTask(task);
+        try {
+          await processTask(task);
+          console.log(`Worker finished task ${task.id}`);
+        } catch (err) {
+          console.error(`Worker failed task ${task.id}:`, err.message);
+        }
+      } else {
+        console.log('No queued task found, waiting...');
       }
       await new Promise((resolve) => setTimeout(resolve, 3000));
     } catch (error) {

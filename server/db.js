@@ -5,7 +5,7 @@ import Database from 'better-sqlite3';
 const testDbFile = process.env.TEST_DB_FILE;
 const dbFile = testDbFile === ':memory:'
   ? ':memory:'
-  : path.resolve(process.cwd(), testDbFile || 'server/db.sqlite');
+  : path.resolve(process.cwd(), testDbFile || 'db.sqlite');
 const dbExists = testDbFile !== ':memory:' && fs.existsSync(dbFile);
 const db = new Database(dbFile);
 

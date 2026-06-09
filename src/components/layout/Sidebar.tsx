@@ -16,6 +16,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, selected, on
     { id: 'agents', label: 'Agents', icon: '◯' },
     { id: 'settings', label: 'Settings', icon: '⚙️' },
     { id: 'pipelines', label: 'Pipelines', icon: '≈' },
+    { id: 'terminal', label: 'Terminal', icon: '💻' },
   ];
 
   const handleSelect = (id: string) => {

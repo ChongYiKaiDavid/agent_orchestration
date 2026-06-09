@@ -1,0 +1,226 @@
+import os
+import uuid
+import pty
+import select
+import subprocess
+from threading import Thread
+
+from flask import Flask, request
+from flask_socketio import SocketIO, emit
+
+
+app = Flask(__name__)
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev")
+
+# Use eventlet for SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
+
+
+# Active terminals: session_id -> PTY/process handles
+TERMINALS = {}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Agent log streaming
+# ──────────────────────────────────────────────────────────────────────────────
+
+@socketio.on("agent-log")
+def on_agent_log(data):
+    """Receive agent stdout/stderr chunks from the Node.js server and relay them.
+
+    Expected payload shape:
+        {
+          "taskId":  "uuid-of-task",
+          "stageId": "planning|coding|reviewing",
+          "type":    "stdout" | "stderr" | "system",
+          "data":    "log message string",
+          "end":     false  # optional; if true, signals stage finished
+        }
+
+    The client joins room = taskId so each task dashboard gets its own feed.
+    """
+    task_id = data.get("taskId") or request.sid
+    stage_id = data.get("stageId", "")
+    log_type = data.get("type", "stdout")
+    chunk = data.get("data", "")
+    is_end = data.get("end", False)
+
+    prefix = {
+        "stdout": "",
+        "stderr": "\x1b[31m",   # red
+        "system": "\x1b[33m",   # yellow
+    }.get(log_type, "")
+
+    suffix = "\x1b[0m" if prefix else ""
+
+    formatted = f"\x1b[36m[{stage_id}]\x1b[0m {prefix}{chunk}{suffix}"
+
+    # Emit to every socket in the taskId room
+    socketio.emit("agent-log", {
+        "taskId": task_id,
+        "stageId": stage_id,
+        "type": log_type,
+        "data": formatted,
+        "end": is_end,
+    }, room=task_id)
+
+
+@socketio.on("join-task")
+def on_join_task(data):
+    """Client requests to subscribe to a task's log stream."""
+    task_id = data.get("taskId")
+    if task_id:
+        socketio.server.enter_room(request.sid, task_id)
+        emit("joined-task", {"taskId": task_id})
+
+
+
+def _spawn_shell():
+    """Spawn an interactive shell in a PTY."""
+    shell = os.environ.get("SHELL") or "/bin/bash"
+    master_fd, slave_fd = pty.openpty()
+
+    proc = subprocess.Popen(
+        [shell],
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=slave_fd,
+        close_fds=True,
+    )
+
+    # We should close slave on our side; PTY master stays open.
+    os.close(slave_fd)
+    return master_fd, proc
+
+
+def _pty_reader(session_id: str):
+    master_fd, proc = TERMINALS[session_id]["pty"]
+
+    try:
+        while True:
+            # If process died, stop
+            poll = proc.poll()
+            if poll is not None:
+                break
+
+            try:
+                rlist, _, _ = select.select([master_fd], [], [], 0.1)
+            except OSError:
+                break
+            if not rlist:
+                continue
+
+            try:
+                data = os.read(master_fd, 4096)
+            except OSError:
+                break
+
+            if not data:
+                continue
+
+            # terminal-output expects string chunks
+            socketio.emit("terminal-output", data.decode("utf-8", errors="replace"), room=session_id)
+    finally:
+        # Cleanup
+        try:
+            os.close(master_fd)
+        except Exception:
+            pass
+        try:
+            TERMINALS.pop(session_id, None)
+        except Exception:
+            pass
+
+
+@socketio.on("connect")
+def on_connect():
+    # Create a session id per socket connection.
+    session_id = str(uuid.uuid4())
+    # Put socket into its own room so we can emit per terminal.
+    # The room must be known by client; we use a query param if provided.
+    # For simplicity, client will just listen globally; we emit to room=session_id.
+    # Since xterm client doesn't pass room id, we also emit without room fallback.
+
+    TERMINALS[session_id] = {}
+    try:
+        master_fd, proc = _spawn_shell()
+        TERMINALS[session_id]["pty"] = (master_fd, proc)
+
+        # Store current socket session room mapping using request.sid
+        # We'll map sid -> session_id.
+        TERMINALS[session_id]["sid"] = request.sid
+
+        # Join the room
+        socketio.server.enter_room(request.sid, session_id)
+
+        emit("terminal-connected", {"sessionId": session_id})
+
+        reader = Thread(target=_pty_reader, args=(session_id,), daemon=True)
+        TERMINALS[session_id]["reader"] = reader
+        reader.start()
+    except Exception as e:
+        emit("terminal-output", f"Failed to start terminal: {e}\n")
+
+
+@socketio.on("disconnect")
+def on_disconnect():
+    sid = request.sid
+    # Find the terminal session for this socket
+    session_id = None
+    for sid_key in list(TERMINALS.keys()):
+        if TERMINALS[sid_key].get("sid") == sid:
+            session_id = sid_key
+            break
+
+    if not session_id:
+        return
+
+    try:
+        master_fd, proc = TERMINALS[session_id]["pty"]
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        try:
+            os.close(master_fd)
+        except Exception:
+            pass
+    finally:
+        TERMINALS.pop(session_id, None)
+
+
+@socketio.on("terminal-command")
+def on_terminal_command(message):
+    """Receive input from xterm and write to PTY."""
+    # message is raw character/string from xterm. May include newlines.
+    sid = request.sid
+
+    session_id = None
+    for sid_key in list(TERMINALS.keys()):
+        if TERMINALS[sid_key].get("sid") == sid:
+            session_id = sid_key
+            break
+
+    if not session_id:
+        return
+
+    try:
+        master_fd, _proc = TERMINALS[session_id]["pty"]
+        if message is None:
+            return
+
+        if isinstance(message, dict) and "data" in message:
+            text = str(message["data"])
+        else:
+            text = str(message)
+
+        os.write(master_fd, text.encode("utf-8"))
+    except Exception as e:
+        socketio.emit("terminal-output", f"Write failed: {e}\n", room=session_id)
+
+
+if __name__ == "__main__":
+    # Default port for Socket.IO
+    port = int(os.environ.get("SOCKET_PORT", "5002"))
+    socketio.run(app, host="0.0.0.0", port=port)
+

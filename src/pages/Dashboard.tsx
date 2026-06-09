@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { fetchTasks, fetchTaskExecutions } from '../api';
 
-const DashboardPage: React.FC = () => {
+interface DashboardPageProps {
+  onViewTask: (taskId: string) => void;
+}
+
+const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
   const [pipeline, setPipeline] = useState('All pipelines');
   const [statusFilter, setStatusFilter] = useState('All statuses');
   const [priority, setPriority] = useState('All priorities');
@@ -170,7 +174,7 @@ const DashboardPage: React.FC = () => {
                       key={task.id}
                       role="button"
                       tabIndex={0}
-                      onClick={() => setSelectedTask(task)}
+                      onClick={() => { setSelectedTask(task); onViewTask(task.id); }}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedTask(task); }}
                       style={{ cursor: 'pointer' }}
                     >
