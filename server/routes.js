@@ -10,7 +10,9 @@ import {
   getArtifactsForExecution,
   getEvents,
   getPipelineDefinitions,
-  getPipeline,
+
+
+
   getAgentDefinitions,
   getPullRequestForExecution,
   ensureTaskWorkspace,
@@ -146,7 +148,7 @@ router.get('/pipelines', (req, res) => {
 });
 
 router.get('/pipelines/:id', (req, res) => {
-  const pipeline = getPipeline(req.params.id);
+  const pipeline = getPipelineDefinitions().find((p) => p.id === req.params.id);
   if (!pipeline) {
     return res.status(404).json({ error: 'Pipeline not found' });
   }

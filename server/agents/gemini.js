@@ -55,19 +55,19 @@ async function getGeminiCommand() {
   return 'gemini';
 }
 
-function buildGeminiArgs(promptFile) {
+function buildGeminiArgs(promptFile, promptText) {
   if (process.env.GEMINI_ARGS) {
     return process.env.GEMINI_ARGS.split(' ').map(arg =>
       arg === '<PROMPT_FILE>' ? promptFile : arg
     );
   }
-  return ['--prompt-file', promptFile, '--print', '--no-interactive'];
+  return ['-p', promptText, '--skip-trust'];
 }
 
 export async function runGeminiStage({ prompt, stageId, workspace }) {
   const promptFile = await writePromptFile(workspace, prompt);
   const command = await getGeminiCommand();
-  const args = buildGeminiArgs(promptFile);
+  const args = buildGeminiArgs(promptFile, prompt);
   const env = {
     ...process.env,
     GEMINI_PERMISSION_MODE: process.env.GEMINI_PERMISSION_MODE || 'auto',
