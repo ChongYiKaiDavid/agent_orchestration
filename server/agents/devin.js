@@ -59,7 +59,7 @@ export async function runDevinStage({ prompt, stageId, workspace, onStdout, onSt
   };
 
   return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd: workspace, env, shell: false });
+    const child = spawn(command, args, { cwd: workspace, env, shell: process.platform === 'win32' });
 
     let stdout = '';
     let stderr = '';

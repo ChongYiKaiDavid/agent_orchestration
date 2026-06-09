@@ -27,9 +27,15 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
   ];
 
   useEffect(() => {
-    fetchTasks()
-      .then(setTasks)
-      .catch(() => setTasks([]));
+    const loadTasks = () => {
+      fetchTasks()
+        .then(setTasks)
+        .catch(() => setTasks([]));
+    };
+
+    loadTasks();
+    const interval = setInterval(loadTasks, 3000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -38,18 +44,28 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
       return;
     }
 
-    fetchTaskExecutions(selectedTask.id)
-      .then(setExecutionDetails)
-      .catch(() => setExecutionDetails(null));
+    const loadExecutionDetails = () => {
+      fetchTaskExecutions(selectedTask.id)
+        .then(setExecutionDetails)
+        .catch(() => setExecutionDetails(null));
+    };
+
+    loadExecutionDetails();
+    const interval = setInterval(loadExecutionDetails, 3000);
+    return () => clearInterval(interval);
   }, [selectedTask]);
 
   function statusToStage(task: any) {
     if (!task) return 'plan';
     switch (task.status) {
       case 'queued':
+      case 'planning':
         return 'plan';
       case 'running':
+      case 'coding':
         return 'code';
+      case 'reviewing':
+        return 'review';
       case 'pr_created':
         return 'pr';
       case 'completed':

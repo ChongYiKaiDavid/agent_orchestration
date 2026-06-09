@@ -304,6 +304,7 @@ export async function processTask(task) {
       INSERT INTO stage_executions (id, execution_id, stage_name, status, input_data, started_at)
       VALUES (?, ?, ?, 'running', ?, ?)
     `).run(stageId, executionId, stage.id, JSON.stringify({ prompt, task }), now());
+    db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run(stage.id, now(), task.id);
     recordActivity({
       taskId: task.id,
       event_type: 'stage_started',
