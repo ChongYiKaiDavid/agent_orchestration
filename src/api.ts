@@ -66,3 +66,12 @@ export async function fetchAgents() {
   const response = await fetch('/api/agents');
   return parseJson(response);
 }
+
+export async function deleteTask(taskId: string) {
+  const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+    method: 'DELETE',
+    headers: defaultHeaders,
+  });
+  return parseJson(response);
+}
+

@@ -158,6 +158,27 @@ export function claimQueuedTask() {
   });
   return tx();
 }
+export async function deleteTask(taskId) {
+  // Delete a task and associated rows.
+  // Deletes in dependency order to satisfy foreign keys.
+  db.prepare('DELETE FROM stage_executions WHERE execution_id IN (SELECT id FROM executions WHERE task_id = ?)').run(taskId);
+  db.prepare('DELETE FROM artifacts WHERE execution_id IN (SELECT id FROM executions WHERE task_id = ?)').run(taskId);
+  db.prepare('DELETE FROM pull_requests WHERE execution_id IN (SELECT id FROM executions WHERE task_id = ?)').run(taskId);
+  db.prepare('DELETE FROM executions WHERE task_id = ?').run(taskId);
+  db.prepare('DELETE FROM activity_log WHERE task_id = ?').run(taskId);
+  db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
+
+  // Also remove workspace folder if it exists
+  try {
+    const taskFolder = path.join(workspaceRoot, taskId);
+    await fs.rm(taskFolder, { recursive: true, force: true });
+  } catch {
+    // ignore
+  }
+
+  return { ok: true };
+}
+
 export async function processTask(task) {
   const pipeline = getPipeline(task.pipeline_id);
   if (!pipeline) {

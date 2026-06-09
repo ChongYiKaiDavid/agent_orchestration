@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { fetchTasks, fetchTaskExecutions } from '../api';
+import { fetchTasks, fetchTaskExecutions, deleteTask } from '../api';
+
 
 interface DashboardPageProps {
   onViewTask: (taskId: string) => void;
@@ -195,8 +196,29 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
 
       {selectedTask && (
         <div className="dashboard-selected-task">
-          <h2>{selectedTask.title}</h2>
+          <div className="dashboard-selected-task-header">
+            <h2>{selectedTask.title}</h2>
+            <button
+              className="dashboard-delete-btn"
+              type="button"
+              onClick={async () => {
+                if (!window.confirm(`Delete task ${selectedTask.id}?`)) return;
+                try {
+                  await deleteTask(selectedTask.id);
+                  setSelectedTask(null);
+                  setExecutionDetails(null);
+                  // refresh tasks list
+                  fetchTasks().then(setTasks).catch(() => setTasks([]));
+                } catch (e) {
+                  console.error('Failed to delete task', e);
+                }
+              }}
+            >
+              Delete
+            </button>
+          </div>
           <p>{selectedTask.description || 'No description available.'}</p>
+
 
           <div className="dashboard-task-details">
             <div>Repository: {selectedTask.project}</div>

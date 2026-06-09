@@ -47,7 +47,7 @@ function App() {
       case 'pipelines':
         return <PipelinesPage />;
       case 'task-details':
-        return <TaskDetail taskId={currentTaskId} />;
+        return <TaskDetail taskId={currentTaskId} onTaskDeleted={() => handleSelect('dashboard')} />;
       default:
         return <DashboardPage onViewTask={handleViewTask} />;
     }

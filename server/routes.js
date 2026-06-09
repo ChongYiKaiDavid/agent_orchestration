@@ -27,6 +27,17 @@ router.get('/tasks', (req, res) => {
   res.json(tasks);
 });
 
+router.delete('/tasks/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { deleteTask } = await import('./engine.js');
+    const result = await deleteTask(id);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 // NEW: Auto-select pipeline and agent for a task (preview)
 router.post('/tasks/auto-select', express.json(), (req, res) => {
   const { title, description, repository } = req.body;
@@ -160,3 +171,4 @@ router.get('/agents', (req, res) => {
 });
 
 export default router;
+
