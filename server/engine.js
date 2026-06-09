@@ -1,14 +1,51 @@
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import db from './db.js';
 import { getPipeline as getPipelineDefinition, listPipelines } from './pipelines.js';
 import { runDevinStage, buildStagePrompt as buildDevinStagePrompt } from './agents/devin.js';
 import { runGeminiStage, buildStagePrompt as buildGeminiStagePrompt } from './agents/gemini.js';
 import { listAgents } from './agents.js';
-import { autoSelectPipelineAndAgent } from './auto-selector.js';
+import { io } from 'socket.io-client';
+
 const workspaceRoot = path.resolve(process.cwd(), process.env.TEST_WORKSPACE_ROOT || 'server/workspaces');
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Real-time log streamer — connects to Flask-SocketIO and forwards agent output
+// ──────────────────────────────────────────────────────────────────────────────
+
+let _logSocket = null;
+
+function getLogSocket() {
+  if (_logSocket && _logSocket.connected) return _logSocket;
+
+  const flaskUrl = process.env.FLASK_SOCKET_URL || 'http://localhost:5002';
+  _logSocket = io(flaskUrl, {
+    transports: ['websocket'],
+    autoConnect: true,
+  });
+
+  _logSocket.on('connect', () => {
+    console.log('[log-streamer] Connected to Flask SocketIO');
+  });
+
+  _logSocket.on('disconnect', () => {
+    console.log('[log-streamer] Disconnected from Flask SocketIO');
+  });
+
+  return _logSocket;
+}
+
+function streamLog(taskId, stageId, type, data, end = false) {
+  try {
+    getLogSocket().emit('agent-log', { taskId, stageId, type, data, end });
+  } catch (err) {
+    // Non-fatal: log locally if the stream fails
+    console.error('[log-streamer] Failed to emit log:', err.message);
+  }
+}
+
 function now() {
   return new Date().toISOString();
 }
@@ -175,6 +212,9 @@ export async function processTask(task) {
     event_type: 'stage_started',
     message: `Task execution started for pipeline '${pipeline.name}'.`,
   });
+
+  streamLog(task.id, 'init', 'system', `\x1b[1;35m>>> Task accepted — pipeline: ${pipeline.name}\x1b[0m\r\n`);
+
   let previousOutputs = [];
   let finalVerdict = null;
   let failed = false;
@@ -200,11 +240,30 @@ export async function processTask(task) {
       message: `Stage '${stage.name}' started.`,
       details: JSON.stringify({ stage: stage.id }),
     });
+
+    streamLog(task.id, stage.id, 'system', `\x1b[1;34m>>> Starting stage: ${stage.name}\x1b[0m`);
+
+    const stageLogId = stage.id;
     if (stage.agent === 'gemini') {
-      result = await runGeminiStage({ prompt, stageId: stage.id, workspace: stageFolder });
+      result = await runGeminiStage({
+        prompt,
+        stageId: stage.id,
+        workspace: stageFolder,
+        onStdout: (chunk) => streamLog(task.id, stageLogId, 'stdout', chunk),
+        onStderr: (chunk) => streamLog(task.id, stageLogId, 'stderr', chunk),
+      });
     } else {
-      result = await runDevinStage({ prompt, stageId: stage.id, workspace: stageFolder });
+      result = await runDevinStage({
+        prompt,
+        stageId: stage.id,
+        workspace: stageFolder,
+        onStdout: (chunk) => streamLog(task.id, stageLogId, 'stdout', chunk),
+        onStderr: (chunk) => streamLog(task.id, stageLogId, 'stderr', chunk),
+      });
     }
+
+    streamLog(task.id, stageLogId, 'system', `\x1b[1;32m>>> Stage complete (exit ${result.exitCode})\x1b[0m`, true);
+
     const output = result.output || ''; 
     const logs = [result.logs, output].filter(Boolean).join('\n');
     const verdictMatch = output.match(/VERDICT:\s*(GO|FAIL|SPEC_FAIL|ESCALATE)/i);

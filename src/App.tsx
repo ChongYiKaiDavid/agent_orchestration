@@ -9,10 +9,12 @@ import ActivityPage from './pages/Activity.tsx';
 import AgentsPage from './pages/Agents.tsx';
 import SettingsPage from './pages/Settings.tsx';
 import PipelinesPage from './pages/Pipelines.tsx';
+import TaskDetail from './pages/TaskDetails.tsx';
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedSection, setSelectedSection] = useState('dashboard');
+  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
@@ -20,12 +22,18 @@ function App() {
 
   const handleSelect = (id: string) => {
     setSelectedSection(id);
+    if (id !== 'task-details') setCurrentTaskId(null);
+  };
+
+  const handleViewTask = (taskId: string) => {
+    setCurrentTaskId(taskId);
+    setSelectedSection('task-details');
   };
 
   const renderSection = () => {
     switch (selectedSection) {
       case 'dashboard':
-        return <DashboardPage />;
+        return <DashboardPage onViewTask={handleViewTask} />;
       case 'create':
         return <CreateTask />;
       case 'decompose':
@@ -38,8 +46,10 @@ function App() {
         return <SettingsPage />;
       case 'pipelines':
         return <PipelinesPage />;
+      case 'task-details':
+        return <TaskDetail taskId={currentTaskId} />;
       default:
-        return <DashboardPage />;
+        return <DashboardPage onViewTask={handleViewTask} />;
     }
   };
 

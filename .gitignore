@@ -27,3 +27,12 @@ server/workspaces
 *.njsproj
 *.sln
 *.sw?
+
+# Python virtual environment
+.venv/
+
+# SQLite database (local development)
+db.sqlite
+
+# Nested server directory
+server/server/

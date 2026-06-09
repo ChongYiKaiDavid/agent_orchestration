@@ -48,9 +48,9 @@ async function getDevinCommand() {
   return found || defaultName;
 }
 
-export async function runDevinStage({ prompt, stageId, workspace }) {
+export async function runDevinStage({ prompt, stageId, workspace, onStdout, onStderr }) {
   const promptFile = await writePromptFile(workspace, prompt);
-  
+
   const command = await getDevinCommand();
   const args = ['--prompt-file', promptFile, '--print'];
   const env = {
@@ -65,11 +65,15 @@ export async function runDevinStage({ prompt, stageId, workspace }) {
     let stderr = '';
 
     child.stdout.on('data', (chunk) => {
-      stdout += chunk.toString();
+      const text = chunk.toString();
+      stdout += text;
+      if (onStdout) onStdout(text);
     });
 
     child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
+      const text = chunk.toString();
+      stderr += text;
+      if (onStderr) onStderr(text);
     });
 
     child.on('close', (code) => {
