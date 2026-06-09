@@ -17,8 +17,8 @@ from flask_socketio import SocketIO, emit
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev")
 
-# Use eventlet for SocketIO
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
+# Use threading for SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent")
 
 
 # Active terminals: session_id -> PTY/process handles
@@ -65,6 +65,7 @@ def on_agent_log(data):
     # If taskId is the Flask sid (PTY mode), emit globally.
     emit_target = task_id if task_id != request.sid else None
     if emit_target:
+        print(f"[DEBUG] agent-log -> room {emit_target}")
         socketio.emit("agent-log", {
             "taskId": task_id,
             "stageId": stage_id,
@@ -72,8 +73,8 @@ def on_agent_log(data):
             "data": formatted,
             "end": is_end,
         }, room=emit_target)
-        print(f"[DEBUG] agent-log -> room {emit_target}")
     else:
+        print(f"[DEBUG] agent-log -> global (sid fallback)")
         socketio.emit("agent-log", {
             "taskId": task_id,
             "stageId": stage_id,
@@ -81,7 +82,6 @@ def on_agent_log(data):
             "data": formatted,
             "end": is_end,
         })
-        print(f"[DEBUG] agent-log -> global (sid fallback)")
 
 
 @socketio.on("join-task")
@@ -243,8 +243,21 @@ def on_terminal_command(message):
         socketio.emit("terminal-output", f"Write failed: {e}\n", room=session_id)
 
 
+@app.route("/test-broadcast/<task_id>")
+def test_broadcast(task_id):
+    """Test endpoint: emit a test message to a room to verify room-based emit works."""
+    test_data = {
+        "taskId": task_id,
+        "stageId": "test",
+        "type": "system",
+        "data": f"\x1b[1;33m*** TEST BROADCAST to room {task_id} ***\x1b[0m\r\n",
+        "end": True,
+    }
+    print(f"[TEST] Broadcasting to room {task_id}")
+    socketio.emit("agent-log", test_data, room=task_id)
+    return f"Test broadcast sent to room {task_id}"
+
+
 if __name__ == "__main__":
-    # Default port for Socket.IO
-    port = int(os.environ.get("SOCKET_PORT", "5002"))
-    socketio.run(app, host="0.0.0.0", port=port)
+    socketio.run(app, host="0.0.0.0", port=5002, debug=False)
 
