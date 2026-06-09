@@ -1,9 +1,14 @@
 import os
 import uuid
-import pty
-import select
 import subprocess
 from threading import Thread
+
+try:
+    import pty
+    import select
+    HAS_PTY = True
+except ImportError:
+    HAS_PTY = False
 
 from flask import Flask, request
 from flask_socketio import SocketIO, emit
@@ -93,6 +98,9 @@ def on_join_task(data):
 
 def _spawn_shell():
     """Spawn an interactive shell in a PTY."""
+    if not HAS_PTY:
+        raise Exception("Interactive terminal (PTY) is not supported on Windows. Logs will still stream.")
+
     shell = os.environ.get("SHELL") or "/bin/bash"
     master_fd, slave_fd = pty.openpty()
 

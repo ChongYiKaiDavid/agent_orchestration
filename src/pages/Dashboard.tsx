@@ -196,11 +196,27 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
 
       {selectedTask && (
         <div className="dashboard-selected-task">
-          <div className="dashboard-selected-task-header">
+        <div className="dashboard-selected-task-header" style={{ position: 'relative' }}>
             <h2>{selectedTask.title}</h2>
             <button
-              className="dashboard-delete-btn"
               type="button"
+              title="Delete Task"
+              style={{
+                position: 'absolute',
+                top: '-10px',
+                right: '0',
+                background: 'transparent',
+                border: 'none',
+                color: 'red',
+                fontSize: '48px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                lineHeight: '1',
+                padding: '10px',
+                transition: 'transform 0.2s'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
+              onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
               onClick={async () => {
                 if (!window.confirm(`Delete task ${selectedTask.id}?`)) return;
                 try {
@@ -214,7 +230,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
                 }
               }}
             >
-              Delete
+              &#x2715;
             </button>
           </div>
           <p>{selectedTask.description || 'No description available.'}</p>

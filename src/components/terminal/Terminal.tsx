@@ -37,7 +37,22 @@ export const Terminal: React.FC<TerminalProps> = ({ taskId, mode = 'agent' }) =>
     term.loadAddon(fitAddon);
 
     term.open(terminalRef.current);
-    fitAddon.fit();
+
+    // Wait for the DOM to be fully rendered before fitting
+    const fitTerminal = () => {
+      try {
+        if (terminalRef.current && terminalRef.current.clientWidth > 0 && terminalRef.current.clientHeight > 0) {
+          if (term.element) {
+            fitAddon.fit();
+          }
+        }
+      } catch (e) {
+        console.warn('fitAddon.fit() failed:', e);
+      }
+    };
+
+    setTimeout(fitTerminal, 50);
+    setTimeout(fitTerminal, 250); // Double-check if first missed it
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
@@ -115,7 +130,7 @@ export const Terminal: React.FC<TerminalProps> = ({ taskId, mode = 'agent' }) =>
 
     term.focus();
 
-    const handleResize = () => fitAddon.fit();
+    const handleResize = () => fitTerminal();
     window.addEventListener('resize', handleResize);
 
     return () => {
