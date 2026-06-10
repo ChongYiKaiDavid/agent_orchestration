@@ -168,6 +168,59 @@ This is separate from the agent log stream — the PTY gives you a direct intera
 
 ---
 
+## 6. Real Pull Request Creation (GitHub & Bitbucket)
+
+The worker can automatically push branches and open real Pull Requests on GitHub or Bitbucket if you provide the appropriate credentials.
+
+### Storing Credentials Permanently (Recommended)
+Instead of typing your tokens every time, you can save them in a `.env` file so the worker automatically loads them:
+1. Copy the `.env.example` file and rename the copy to `.env`.
+2. Open the `.env` file and uncomment (remove the `#`) from the token you want to use.
+3. Paste your actual token/password next to the `=` sign.
+4. Now, you can simply run `npm run worker` and it will automatically use your saved credentials.
+
+---
+
+### Passing Credentials via Terminal (Temporary)
+If you prefer not to use a `.env` file, you can pass them when starting the worker:
+
+#### For GitHub
+You need a GitHub Personal Access Token (PAT) with `repo` scopes.
+
+```bash
+# On Windows PowerShell:
+$env:GITHUB_TOKEN="ghp_your_token_here"
+npm run worker
+
+# On Mac/Linux:
+GITHUB_TOKEN="ghp_your_token_here" npm run worker
+```
+
+#### For Bitbucket
+You can use either a **Workspace/Repository Access Token** (Bearer) OR an **App Password** (Basic Auth).
+
+**Option A: Using App Password (Recommended for user accounts)**
+Generate an App Password in your Bitbucket settings with `repository:write` and `pullrequest:write` permissions.
+
+```bash
+# On Windows PowerShell:
+$env:BITBUCKET_USERNAME="your_bitbucket_username"
+$env:BITBUCKET_APP_PASSWORD="your_app_password"
+npm run worker
+
+# On Mac/Linux:
+BITBUCKET_USERNAME="your_username" BITBUCKET_APP_PASSWORD="your_app_password" npm run worker
+```
+
+**Option B: Using Repository/Workspace Token**
+```bash
+# On Windows PowerShell:
+$env:BITBUCKET_TOKEN="your_access_token"
+npm run worker
+```
+
+---
+
 ## Summary
 
 > "This is an orchestration dashboard for AI coding agents. I can go to the web interface and define a coding task. A backend server receives that task and puts it in a queue. A separate background worker watches that queue, picks up the task, and streams live agent logs back to my browser via a real-time Socket.IO pipeline — so I can watch the AI think, code, and review in real-time inside the browser terminal."
