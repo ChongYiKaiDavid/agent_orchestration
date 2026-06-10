@@ -48,6 +48,64 @@ router.post('/tasks/auto-select', express.json(), (req, res) => {
   res.json(selection);
 });
 
+// NEW: Jira Issue intake -> create an internal Task for the AI agent pipeline.
+// Accepts Jira-like payload (summary/title + description + optional fields)
+// and queues a task using pipeline='auto'.
+router.post('/tasks/from-jira', express.json(), (req, res) => {
+  const {
+    // Jira core fields
+    summary,
+    title,
+    description,
+    assignee,
+    status,
+    priority,
+    links,
+    attachments,
+
+    // Optional orchestration fields
+    repository,
+    targetBranch,
+  } = req.body || {};
+
+  const jiraTitle = summary || title;
+  if (!jiraTitle) {
+    return res.status(400).json({ error: 'Missing required field: summary (or title)' });
+  }
+
+  const normalizedLinks = Array.isArray(links)
+    ? links.filter(Boolean)
+    : (typeof links === 'string' && links.trim() ? [links.trim()] : []);
+
+  const normalizedAttachments = Array.isArray(attachments)
+    ? attachments.filter(Boolean)
+    : (typeof attachments === 'string' && attachments.trim() ? [attachments.trim()] : []);
+
+  const jiraDescriptionBlock = [
+    description ? `Jira Description:\n${description}` : 'Jira Description:\n(No description provided)',
+    assignee ? `Jira Assignee: ${assignee}` : null,
+    status ? `Jira Status: ${status}` : null,
+    priority ? `Jira Priority: ${priority}` : null,
+    normalizedLinks.length ? `Jira Links:\n- ${normalizedLinks.join('\n- ')}` : null,
+    normalizedAttachments.length ? `Jira Attachments (metadata/refs):\n- ${normalizedAttachments.join('\n- ')}` : null,
+    '',
+    'Instructions:',
+    'Treat this Jira issue as the source of truth. Implement the required behavior and/or provide the exact code changes needed to satisfy the description.'
+  ].filter(Boolean).join('\n\n');
+
+  const task = createTask({
+    title: jiraTitle,
+    description: jiraDescriptionBlock,
+    pipeline: 'auto',
+    priority: priority || 'medium',
+    repository: repository || null,
+    targetBranch: targetBranch || null,
+  });
+
+  res.status(201).json(task);
+});
+
+
 router.post('/tasks/decompose', express.json(), async (req, res) => {
   const { epicDescription } = req.body;
   if (!epicDescription) {
