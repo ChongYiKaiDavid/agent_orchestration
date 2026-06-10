@@ -57,8 +57,14 @@ export const Terminal: React.FC<TerminalProps> = ({ taskId, mode = 'agent' }) =>
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    const socket = io('http://localhost:5002', {
-      transports: ['websocket'],
+    const socketUrl = import.meta.env.VITE_FLASK_SOCKET_URL || 'http://localhost:5002';
+    const socket = io(socketUrl, {
+      // Don't force websocket-only. Let Socket.IO negotiate.
+      transports: ['polling', 'websocket'],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 500,
+      timeout: 20000,
     });
 
     socketRef.current = socket;
@@ -144,3 +150,4 @@ export const Terminal: React.FC<TerminalProps> = ({ taskId, mode = 'agent' }) =>
 };
 
 export default Terminal;
+

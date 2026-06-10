@@ -4,8 +4,14 @@ class SocketService {
   private socket: Socket | null = null;
 
   connect() {
-    this.socket = io('http://localhost:5002', {
-      transports: ['websocket'],
+    const socketUrl = import.meta.env.VITE_FLASK_SOCKET_URL || process.env.VITE_FLASK_SOCKET_URL || 'http://localhost:5002';
+
+    this.socket = io(socketUrl, {
+      // Let socket.io negotiate transports (avoids websocket-only failures in some envs)
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 500,
     });
     return this.socket;
   }

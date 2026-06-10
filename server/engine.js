@@ -29,9 +29,11 @@ function getLogSocket() {
   }
 
   const flaskUrl = process.env.FLASK_SOCKET_URL || 'http://localhost:5002';
+
   _logSocket = io(flaskUrl, {
-    transports: ['websocket'],
+    transports: [process.env.FLASK_SOCKET_TRANSPORT || 'websocket'],
     autoConnect: false,
+
   });
   _socketInstanceCount++;
   console.log(`[log-streamer] ★ Created socket #${_socketInstanceCount}`);
@@ -48,12 +50,21 @@ function getLogSocket() {
 
   _logSocket.on('connect_error', (err) => {
     console.log(`[log-streamer] ✗ CONNECT_ERROR: ${err.message}`);
+    console.log(`[log-streamer] ➜ Is the Flask Socket.IO server running at ${flaskUrl}?`);
+    console.log(`[log-streamer] ➜ Verify: cd server-flask && python app.py`);
+    console.log(`[log-streamer] ➜ Also verify port matches: node expects ${flaskUrl}`);
+    if (process.env.FLASK_SOCKET_URL === undefined) {
+      console.log(`[log-streamer] ➜ Note: FLASK_SOCKET_URL was not set; defaulting to http://localhost:5002`);
+    }
+
   });
 
-  console.log('[log-streamer] Calling socket.connect()...');
+  const flaskTransportHint = process.env.FLASK_SOCKET_TRANSPORT || 'websocket';
+  console.log(`[log-streamer] Calling socket.connect()... (${flaskUrl}, transport=${flaskTransportHint})`);
   _logSocket.connect();
   return _logSocket;
 }
+
 
 function waitForSocket() {
   const socket = getLogSocket();
@@ -61,6 +72,19 @@ function waitForSocket() {
 
   return new Promise((resolve) => {
     _pendingResolves.push(resolve);
+    
+    // Add timeout to prevent worker from hanging indefinitely if Flask server is down
+    setTimeout(() => {
+      if (!socket.connected) {
+        console.warn(`[log-streamer] ⚠ Timeout waiting for Flask Socket.IO server. Continuing without log streaming...`);
+        // Remove this resolve from the pending list
+        const index = _pendingResolves.indexOf(resolve);
+        if (index > -1) {
+          _pendingResolves.splice(index, 1);
+        }
+        resolve(socket);
+      }
+    }, 3000);
   });
 }
 

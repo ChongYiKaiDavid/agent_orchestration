@@ -18,7 +18,7 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev")
 
 # Use threading for SocketIO
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 
 # Active terminals: session_id -> PTY/process handles
@@ -31,6 +31,8 @@ TERMINALS = {}
 
 @socketio.on("agent-log")
 def on_agent_log(data):
+    # Useful if the frontend can't parse/receive logs
+    # (Keep this function lightweight; no heavy computation here)
     """Receive agent stdout/stderr chunks from the Node.js server and relay them.
 
     Expected payload shape:

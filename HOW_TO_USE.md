@@ -21,7 +21,7 @@ To make this magic happen, the application is split into four separate parts tha
 4. **The Flask Socket.IO Server:** A real-time event server that receives agent log events from the worker and broadcasts them to connected browser clients. It also provides interactive PTY (terminal) sessions.
 
 ---
-
+cd "C:\Users\Gary Chong\Downloads\Telegram Desktop\agent_orchestration\agent_orchestration"
 ## 2. Step-by-Step: How to Start the Application
 
 Because this project relies on four distinct pieces working together, you must start all of them in separate terminal windows.
@@ -41,11 +41,32 @@ Open a **new terminal window** in the `agent_orchestration` folder and run:
 
 ```bash
 cd server-flask
-python3 app.py
+python app.py
 ```
 
 * **What this does:** Starts the Flask Socket.IO server on port `5002`. This handles real-time event streaming — both agent log broadcasts to the browser terminal AND interactive PTY terminal sessions.
+* **What to run (Terminal 1):**
+
+  ```bash
+  cd server-flask
+  # Default (most common): Flask-SocketIO listens on port 5002
+  python app.py
+  ```
+
+* **How to know which Socket.IO port you are running on**
+  - Check `server-flask/app.py`: at the bottom it calls `socketio.run(... port=5002)`.
+  - If you changed that `port=...` value, then your new port is the one you must use.
+
+* **If you changed the Flask port and want Node to use it**
+  - set `FLASK_SOCKET_URL` to match the URL/port you configured in `app.py`.
+
+
 * **What to watch for:** When a browser connects, you'll see debug output like `[DEBUG] join-task: socket ... joined room ...`. When the worker emits logs, you'll see `[DEBUG] agent-log -> room ...`.
+
+* **If your setup uses a different Flask Socket.IO URL:**
+  - Start backend/worker with `FLASK_SOCKET_URL`.
+  - Start frontend dev server with `VITE_FLASK_SOCKET_URL`.
+
 
 ### Step 3: Start the Frontend UI (Terminal 2)
 
@@ -150,3 +171,30 @@ This is separate from the agent log stream — the PTY gives you a direct intera
 ## Summary
 
 > "This is an orchestration dashboard for AI coding agents. I can go to the web interface and define a coding task. A backend server receives that task and puts it in a queue. A separate background worker watches that queue, picks up the task, and streams live agent logs back to my browser via a real-time Socket.IO pipeline — so I can watch the AI think, code, and review in real-time inside the browser terminal."
+
+Step-by-step: run everything again (after the Flask Socket fix)
+0) Stop old processes
+Close/stop these terminals if they’re still running:
+
+Flask Socket.IO (python app.py in server-flask/)
+Frontend (npm run dev)
+Backend (npm run server)
+Worker (npm run worker)
+1) Terminal 1 — Flask Socket.IO (PORT 5002)
+
+cd "c:/Users/Gary Chong/Downloads/Telegram Desktop/agent_orchestration/agent_orchestration/server-flask"
+python app.py
+2) Terminal 2 — Frontend UI (PORT 5173)
+
+cd "c:/Users/Gary Chong/Downloads/Telegram Desktop/agent_orchestration/agent_orchestration"
+npm run dev
+Open browser to: http://localhost:5173
+
+3) Terminal 3 — Backend API (PORT 5174)
+
+cd "c:/Users/Gary Chong/Downloads/Telegram Desktop/agent_orchestration/agent_orchestration"
+npm run server
+4) Terminal 4 — Worker
+
+cd "c:/Users/Gary Chong/Downloads/Telegram Desktop/agent_orchestration/agent_orchestration"
+npm run worker
