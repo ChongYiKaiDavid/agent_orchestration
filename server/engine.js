@@ -144,8 +144,39 @@ function normalizeRepositoryUrl(repository) {
     return `${repo}.git`;
   }
 
+  // Normalize GitHub web URLs like:
+  // https://github.com/<owner>/<repo>/tree/<branch>
+  // https://github.com/<owner>/<repo>/blob/<branch>/...
+  // -> https://github.com/<owner>/<repo>.git
+  const githubMatch = repo.match(/^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)(?:\/.*)?$/i);
+  if (githubMatch) {
+    const owner = githubMatch[1];
+    const repoName = githubMatch[2].replace(/\.git$/i, '');
+    return `https://github.com/${owner}/${repoName}.git`;
+  }
+
   return repository;
 }
+
+function parseGitHubRepo(repository) {
+  if (!repository) return null;
+  const repo = repository.trim();
+  // https://github.com/<owner>/<repo>.git or without .git
+  const httpsMatch = repo.match(/^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/?#]+?)(?:\.git)?$/i);
+  if (httpsMatch) return { owner: httpsMatch[1], repoName: httpsMatch[2] };
+  // ssh git@github.com:<owner>/<repo>.git
+  const sshMatch = repo.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/i);
+  if (sshMatch) return { owner: sshMatch[1], repoName: sshMatch[2] };
+  return null;
+}
+
+function buildGitHubAuthenticatedHttpsUrl({ owner, repoName }, token) {
+  if (!token) return null;
+  // Use x-access-token as username to support PATs (common GitHub behavior for HTTPS)
+  // Result: https://x-access-token:<token>@github.com/<owner>/<repo>.git
+  return `https://${encodeURIComponent('x-access-token')}:${encodeURIComponent(token)}@github.com/${owner}/${repoName}.git`;
+}
+
 
 export function looksLikeGitRepo(repository) {
   return /^(https?:\/\/|git@|ssh:\/\/|git:\/\/).+|.+\.git$/i.test(repository);
@@ -203,7 +234,20 @@ export async function cloneRepository(repository, branch, destination) {
     effectiveRepoUrl = `https://${encodeURIComponent(bitbucketUser)}:${encodeURIComponent(token)}@bitbucket.org/${workspace}/${repoName}.git`;
   }
 
-
+  // GitHub token-based HTTPS cloning.
+  // Use GITHUB_TOKEN as PAT for HTTPS clones/pushes.
+  // Expected env:
+  //   GITHUB_TOKEN=<PAT>
+  const githubToken = process.env.GITHUB_TOKEN;
+  if (githubToken) {
+    const gh = parseGitHubRepo(repository);
+    if (gh) {
+      const authUrl = buildGitHubAuthenticatedHttpsUrl(gh, githubToken);
+      if (authUrl) {
+        effectiveRepoUrl = authUrl;
+      }
+    }
+  }
 
   const args = ['clone', '--depth', '1'];
   if (branch) {
@@ -577,9 +621,10 @@ export async function processTask(task) {
           
           if (statusResult.stdout && statusResult.stdout.trim() !== '') {
             // Configure remote with HTTPS credentials for push
-            const token = process.env.BITBUCKET_HTTPS_TOKEN;
+            // (Bitbucket + GitHub)
+            const bitbucketToken = process.env.BITBUCKET_HTTPS_TOKEN;
             const bitbucketUser = process.env.BITBUCKET_USERNAME;
-            if (token && bitbucketUser && task.repository) {
+            if (bitbucketToken && bitbucketUser && task.repository) {
               const httpsMatch = task.repository.match(/^https:\/\/(?:www\.)?bitbucket\.org\/([^/]+)\/([^/]+?)(\.git)?$/i);
               const sshMatch = task.repository.match(/^git@bitbucket\.org:([^/]+)\/([^/]+?)(\.git)?$/i);
               let workspace, repoName;
@@ -591,10 +636,22 @@ export async function processTask(task) {
                 repoName = sshMatch[2];
               }
               if (workspace && repoName) {
-                const remoteUrl = `https://${encodeURIComponent(bitbucketUser)}:${encodeURIComponent(token)}@bitbucket.org/${workspace}/${repoName}.git`;
+                const remoteUrl = `https://${encodeURIComponent(bitbucketUser)}:${encodeURIComponent(bitbucketToken)}@bitbucket.org/${workspace}/${repoName}.git`;
                 spawnSync('git', ['remote', 'set-url', 'origin', remoteUrl], { cwd: repositoryPath });
               }
             }
+
+            const githubToken = process.env.GITHUB_TOKEN;
+            if (githubToken && task.repository) {
+              const gh = parseGitHubRepo(task.repository);
+              if (gh) {
+                const remoteUrl = buildGitHubAuthenticatedHttpsUrl(gh, githubToken);
+                if (remoteUrl) {
+                  spawnSync('git', ['remote', 'set-url', 'origin', remoteUrl], { cwd: repositoryPath });
+                }
+              }
+            }
+
 
             spawnSync('git', ['checkout', '-b', branchName], { cwd: repositoryPath });
             spawnSync('git', ['add', '.'], { cwd: repositoryPath });
