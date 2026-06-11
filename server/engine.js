@@ -90,8 +90,13 @@ function waitForSocket() {
 
 async function streamLog(taskId, stageId, type, data, end = false) {
   try {
-    await waitForSocket();
-    _logSocket.emit('agent-log', { taskId, stageId, type, data, end });
+    // Don't block waiting for socket - just skip if not connected
+    const socket = getLogSocket();
+    if (!socket.connected) {
+      // Silently skip log streaming if socket not available
+      return;
+    }
+    socket.emit('agent-log', { taskId, stageId, type, data, end });
   } catch (err) {
     console.error('[log-streamer] Failed to emit log:', err.message);
   }
@@ -114,6 +119,34 @@ export async function ensureWorkspace(taskId, stageId) {
   await fs.mkdir(stageFolder, { recursive: true });
   return stageFolder;
 }
+function normalizeRepositoryUrl(repository) {
+  if (!repository) return repository;
+
+  const repo = repository.trim();
+
+  // Normalize Bitbucket web URLs like:
+  // https://bitbucket.org/<workspace>/<repo>/src/<branch>/
+  // -> https://bitbucket.org/<workspace>/<repo>.git
+  // Also handle optional trailing segments.
+  const bitbucketSrcMatch = repo.match(
+    /^https?:\/\/(?:www\.)?bitbucket\.org\/([^/]+)\/([^/]+)\/src\/(?:([^/?#]+)\/?)?/i
+  );
+  if (bitbucketSrcMatch) {
+    const workspace = bitbucketSrcMatch[1];
+    const project = bitbucketSrcMatch[2].replace(/\.git$/i, '');
+    return `https://bitbucket.org/${workspace}/${project}.git`;
+  }
+
+  // If it's an https URL without .git but looks like a repo root, add .git
+  // Example: https://bitbucket.org/<workspace>/<repo>
+  const bitbucketRepoRootMatch = repo.match(/^https?:\/\/(?:www\.)?bitbucket\.org\/([^/]+)\/([^/?#]+)$/i);
+  if (bitbucketRepoRootMatch && !repo.endsWith('.git')) {
+    return `${repo}.git`;
+  }
+
+  return repository;
+}
+
 export function looksLikeGitRepo(repository) {
   return /^(https?:\/\/|git@|ssh:\/\/|git:\/\/).+|.+\.git$/i.test(repository);
 }
@@ -121,20 +154,118 @@ export async function cloneRepository(repository, branch, destination) {
   if (!repository) {
     throw new Error('No repository URL provided.');
   }
+
   await fs.rm(destination, { recursive: true, force: true });
   await fs.mkdir(destination, { recursive: true });
+
+  // Normalize/parse repository URL.
+  // NOTE: Earlier failures show git trying to clone from malformed HTTPS like:
+  //   https://vyr983ygvf/ai-orchestration.git/
+  // so we must avoid accidental rewriting of the DB-provided repo URL.
+  let effectiveRepoUrl = repository;
+
+  // Check for SSH format URLs: git@bitbucket.org:workspace/repo.git
+  const sshMatch = repository.match(/^git@bitbucket\.org:([^/]+)\/([^/]+?)(\.git)?$/i);
+  // Check for HTTPS format URLs: https://bitbucket.org/workspace/repo.git
+  const httpsMatch = repository.match(/^https:\/\/(?:www\.)?bitbucket\.org\/([^/]+)\/([^/]+?)(\.git)?$/i);
+
+  // Only use HTTPS basic-auth if we have a real Bitbucket app password.
+  // (Your earlier failure showed a placeholder password was being injected.)
+  const bitbucketUser = process.env.BITBUCKET_USERNAME;
+  const bitbucketPass = process.env.BITBUCKET_APP_PASSWORD;
+  const hasBasicCreds = bitbucketUser && bitbucketPass && !/your-bitbucket-app-password/i.test(bitbucketPass);
+
+  // Apply basic auth credentials to HTTPS URLs
+  if (hasBasicCreds && httpsMatch) {
+    const workspace = httpsMatch[1];
+    const repoName = httpsMatch[2];
+    effectiveRepoUrl = `https://${encodeURIComponent(bitbucketUser)}:${encodeURIComponent(bitbucketPass)}@bitbucket.org/${workspace}/${repoName}.git`;
+  } else if (hasBasicCreds && sshMatch) {
+    // Apply basic auth to SSH-formatted URLs
+    const workspace = sshMatch[1];
+    const repoName = sshMatch[2];
+    effectiveRepoUrl = `https://${encodeURIComponent(bitbucketUser)}:${encodeURIComponent(bitbucketPass)}@bitbucket.org/${workspace}/${repoName}.git`;
+  }
+
+  // Support token-based HTTPS cloning.
+  // Use BITBUCKET_USERNAME with BITBUCKET_HTTPS_TOKEN as password:
+  //   https://username:token@bitbucket.org/<workspace>/<repo>.git
+  const token = process.env.BITBUCKET_HTTPS_TOKEN;
+  // Reuse bitbucketUser from earlier
+  if (token && bitbucketUser && httpsMatch) {
+    const workspace = httpsMatch[1];
+    const repoName = httpsMatch[2];
+    effectiveRepoUrl = `https://${encodeURIComponent(bitbucketUser)}:${encodeURIComponent(token)}@bitbucket.org/${workspace}/${repoName}.git`;
+  } else if (token && bitbucketUser && sshMatch) {
+    // Apply token auth to SSH-formatted URLs
+    const workspace = sshMatch[1];
+    const repoName = sshMatch[2];
+    effectiveRepoUrl = `https://${encodeURIComponent(bitbucketUser)}:${encodeURIComponent(token)}@bitbucket.org/${workspace}/${repoName}.git`;
+  }
+
+
+
   const args = ['clone', '--depth', '1'];
   if (branch) {
     args.push('--branch', branch, '--single-branch');
   }
-  args.push(repository, destination);
-  const result = spawnSync('git', args, { stdio: 'pipe', encoding: 'utf8' });
-  if (result.error) {
-    throw result.error;
-  }
-  if (result.status !== 0) {
-    throw new Error(`git clone failed: ${result.stderr || result.stdout}`);
-  }
+
+  // Make git non-interactive and non-prompty.
+  const env = {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+    // Avoid SSH hostkey / yes-no prompts.
+    GIT_SSH_COMMAND: 'ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes',
+    // If a redirect requires auth, this helps git avoid opening editors.
+    SSH_ASKPASS: 'echo',
+  };
+
+  console.log('[cloneRepository] effectiveRepoUrl:', effectiveRepoUrl);
+  args.push(effectiveRepoUrl, destination);
+
+  const cloneTimeoutMs = Number(process.env.CLONE_TIMEOUT_MS || 600000); // default 10 minutes
+  const { spawn } = await import('child_process');
+
+  // Use async spawn with a timeout so git clone can’t hang forever.
+  // Important: kill the *process group* to terminate all git sub-processes (git/ssh/https).
+  await new Promise((resolve, reject) => {
+    const child = spawn('git', args, {
+      cwd: process.cwd(),
+      env,
+      detached: true,
+    });
+
+    let stderr = '';
+    let stdout = '';
+
+    child.stdout?.on('data', (d) => { stdout += d.toString(); });
+    child.stderr?.on('data', (d) => { stderr += d.toString(); });
+
+    const t = setTimeout(async () => {
+      try {
+        // Kill process group
+        process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        try { child.kill('SIGKILL'); } catch {}
+      }
+      // Clean up partial clone so next run can retry cleanly
+      try { await fs.rm(destination, { recursive: true, force: true }); } catch {}
+      reject(new Error(`git clone timed out after ${cloneTimeoutMs}ms`));
+    }, cloneTimeoutMs);
+
+    child.on('error', (err) => {
+      clearTimeout(t);
+      reject(err);
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(t);
+      if (code === 0) return resolve(undefined);
+      const errMsg = `git clone failed: ${stderr || stdout || 'exit code ' + code}`;
+      console.error('[cloneRepository] ERROR:', errMsg);
+      reject(new Error(errMsg));
+    });
+  });
 }
 export function recordActivity({ taskId, event_type, message, details }) {
   const insert = db.prepare(`
@@ -236,9 +367,19 @@ export async function deleteTask(taskId) {
 
 export async function processTask(task) {
   console.log('[processTask] START');
-  // Auto-select the best pipeline and agent based on task content
-  const auto = autoSelectPipelineAndAgent(task);
-  console.log('[processTask] autoSelect done:', auto.pipelineId);
+  // Use task's pipeline_id if specified (not 'auto'), otherwise auto-select
+  let auto;
+  if (task.pipeline_id && task.pipeline_id !== 'auto') {
+    console.log('[processTask] using specified pipeline:', task.pipeline_id);
+    auto = {
+      pipelineId: task.pipeline_id,
+      selectedAgent: 'devin', // default, will be overridden by pipeline stages
+      reasoning: { why: 'User-specified pipeline' }
+    };
+  } else {
+    auto = autoSelectPipelineAndAgent(task);
+    console.log('[processTask] autoSelect done:', auto.pipelineId);
+  }
 
   recordActivity({
     taskId: task.id,
@@ -319,11 +460,14 @@ export async function processTask(task) {
     let prompt;
     let result;
     
+    // Use the correct prompt builder based on agent
     if (stage.agent === 'gemini') {
       prompt = buildGeminiStagePrompt(stage, task, previousOutputs, repositoryPath);
     } else {
+      // devin and other agents
       prompt = buildDevinStagePrompt(stage, task, previousOutputs, repositoryPath);
     }
+
     db.prepare(`
       INSERT INTO stage_executions (id, execution_id, stage_name, status, input_data, started_at)
       VALUES (?, ?, ?, 'running', ?, ?)
@@ -339,6 +483,7 @@ export async function processTask(task) {
     await streamLog(task.id, stage.id, 'system', `\x1b[1;34m>>> Starting stage: ${stage.name}\x1b[0m`);
 
     const stageLogId = stage.id;
+    // Use the correct agent based on stage configuration
     if (stage.agent === 'gemini') {
       result = await runGeminiStage({
         prompt,
@@ -356,6 +501,7 @@ export async function processTask(task) {
         onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
       });
     }
+
 
     await streamLog(task.id, stageLogId, 'system', `\x1b[1;32m>>> Stage complete (exit ${result.exitCode})\x1b[0m`, true);
 
@@ -430,13 +576,74 @@ export async function processTask(task) {
           const statusResult = spawnSync('git', ['status', '--porcelain'], { cwd: repositoryPath, encoding: 'utf8' });
           
           if (statusResult.stdout && statusResult.stdout.trim() !== '') {
+            // Configure remote with HTTPS credentials for push
+            const token = process.env.BITBUCKET_HTTPS_TOKEN;
+            const bitbucketUser = process.env.BITBUCKET_USERNAME;
+            if (token && bitbucketUser && task.repository) {
+              const httpsMatch = task.repository.match(/^https:\/\/(?:www\.)?bitbucket\.org\/([^/]+)\/([^/]+?)(\.git)?$/i);
+              const sshMatch = task.repository.match(/^git@bitbucket\.org:([^/]+)\/([^/]+?)(\.git)?$/i);
+              let workspace, repoName;
+              if (httpsMatch) {
+                workspace = httpsMatch[1];
+                repoName = httpsMatch[2];
+              } else if (sshMatch) {
+                workspace = sshMatch[1];
+                repoName = sshMatch[2];
+              }
+              if (workspace && repoName) {
+                const remoteUrl = `https://${encodeURIComponent(bitbucketUser)}:${encodeURIComponent(token)}@bitbucket.org/${workspace}/${repoName}.git`;
+                spawnSync('git', ['remote', 'set-url', 'origin', remoteUrl], { cwd: repositoryPath });
+              }
+            }
+
             spawnSync('git', ['checkout', '-b', branchName], { cwd: repositoryPath });
             spawnSync('git', ['add', '.'], { cwd: repositoryPath });
             spawnSync('git', ['commit', '-m', `Agent update for task: ${task.title}`], { cwd: repositoryPath });
+            // Push using credentials configured above
             const pushResult = spawnSync('git', ['push', '-u', 'origin', branchName], { cwd: repositoryPath, encoding: 'utf8' });
+
             
             if (pushResult.status === 0) {
               prNumber = branchName;
+              // Create actual pull request via Bitbucket API (reuse token from clone)
+              if (token && bitbucketUser && task.repository) {
+                const httpsMatch = task.repository.match(/^https:\/\/(?:www\.)?bitbucket\.org\/([^/]+)\/([^/]+?)(\.git)?$/i);
+                const sshMatch = task.repository.match(/^git@bitbucket\.org:([^/]+)\/([^/]+?)(\.git)?$/i);
+                let workspace, repoName;
+                if (httpsMatch) { workspace = httpsMatch[1]; repoName = httpsMatch[2]; }
+                else if (sshMatch) { workspace = sshMatch[1]; repoName = sshMatch[2]; }
+                if (workspace && repoName) {
+                  try {
+                    const prApiUrl = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repoName}/pullrequests`;
+                    const prTitle = task.title || `Agent update: ${branchName}`;
+                    const prDesc = `Created by AI agent orchestration for task: ${task.id}\n\nTask: ${task.title}\nBranch: ${branchName}`;
+                    const prResp = await fetch(prApiUrl, {
+                      method: 'POST',
+                      headers: {
+                        'Authorization': `Basic ${Buffer.from(`${bitbucketUser}:${token}`).toString('base64')}`,
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({
+                        title: prTitle,
+                        description: prDesc,
+                        source: { branch: { name: branchName } },
+                        destination: { branch: { name: 'main' } },
+                      }),
+                    });
+                    if (prResp.ok) {
+                      const prData = await prResp.json();
+                      prNumber = prData.id || branchName;
+                      prUrl = prData.links?.html?.href || prUrl;
+                      console.log('[createPullRequest] PR created:', prNumber, prUrl);
+                    } else {
+                      const errText = await prResp.text();
+                      console.error('[createPullRequest] API error:', prResp.status, errText);
+                    }
+                  } catch (e) {
+                    console.error('[createPullRequest] failed:', e.message);
+                  }
+                }
+              }
               prUrl = task.repository ? task.repository.replace('.git', '') + `/tree/${branchName}` : prUrl;
 
               // Real GitHub or Bitbucket PR Creation

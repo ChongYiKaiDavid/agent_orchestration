@@ -55,7 +55,10 @@ export async function runDevinStage({ prompt, stageId, workspace, onStdout, onSt
   const args = ['--prompt-file', promptFile, '--print'];
   const env = {
     ...process.env,
-    DEVIN_PERMISSION_MODE: process.env.DEVIN_PERMISSION_MODE || 'auto',
+    DEVIN_PERMISSION_MODE: process.env.DEVIN_PERMISSION_MODE || 'dangerous',
+    // Allow selecting a cheaper/free model (if your Devin CLI supports it)
+    // e.g. set DEVIN_MODEL=codex or opus in env.
+    DEVIN_MODEL: process.env.DEVIN_MODEL,
   };
 
   return new Promise((resolve) => {
@@ -122,8 +125,11 @@ export function buildStagePrompt(stage, task, previousArtifacts = [], repository
       lines.push('Format the response clearly and include a final line with VERDICT: GO.');
       break;
     case 'coding':
-      lines.push('Using the plan and design artifacts, produce an implementation diff or summary.');
-      lines.push('Write the output into implementation.diff.md.');
+      lines.push('Using the plan and design artifacts, implement the requested changes directly in the cloned repository working tree.');
+      lines.push('Edit real files inside the repository directory (use repository path if provided).');
+      lines.push('Target working directory: the cloned repository at: ' + (repositoryPath ? repositoryPath : '<repoPath>') + '.');
+      lines.push('After modifications, also write a human-readable summary of what you changed into implementation.diff.md (does not replace actual file edits).');
+      lines.push('Include a line formatted exactly as: FILES_CHANGED: <comma-separated file paths>.');
       lines.push('Include any assumptions and list the files changed.');
       break;
     case 'reviewing':

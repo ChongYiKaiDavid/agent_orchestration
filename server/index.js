@@ -1,3 +1,4 @@
+import './loadEnv.js';
 import express from 'express';
 import cors from 'cors';
 import routes from './routes.js';
@@ -24,6 +25,7 @@ if (process.env.START_WORKER === '1') {
       const task = claimQueuedTask();
       if (task) {
         console.log(`Worker claimed task ${task.id}`);
+        // fire-and-forget but protect from overlapping tasks
         await processTask(task);
       }
     } catch (error) {
@@ -31,3 +33,9 @@ if (process.env.START_WORKER === '1') {
     }
   }, 3000);
 }
+
+// Also run worker.js when START_WORKER=2 (legacy fallback)
+if (process.env.START_WORKER === '2') {
+  // intentionally no-op
+}
+

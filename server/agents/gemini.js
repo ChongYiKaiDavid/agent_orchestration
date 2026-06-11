@@ -72,7 +72,7 @@ export async function runGeminiStage({ prompt, stageId, workspace, onStdout, onS
   const env = {
     ...process.env,
     GEMINI_PERMISSION_MODE: process.env.GEMINI_PERMISSION_MODE || 'auto',
-    GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || '',
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '',
   };
 
   return new Promise((resolve) => {
@@ -139,8 +139,12 @@ export function buildStagePrompt(stage, task, previousArtifacts = [], repository
       lines.push('Format the response clearly and include a final line with VERDICT: GO.');
       break;
     case 'coding':
-      lines.push('Using the plan and design artifacts, produce an implementation diff or summary.');
-      lines.push('Write the output into implementation.diff.md.');
+      lines.push('Using the plan and design artifacts, implement the requested changes directly in the cloned repository working tree.');
+      lines.push('Edit real files inside the repository working tree. Do NOT just output a diff. Commit/push depends on real working tree changes.');
+
+      lines.push('Target working directory: the cloned repository at: ' + (repositoryPath ? repositoryPath : '<repoPath>') + '.');
+      lines.push('After modifications, also write a human-readable summary of what you changed into implementation.diff.md (this is documentation only; do not rely on the diff for the actual edit).');
+
       lines.push('Include any assumptions and list the files changed.');
       break;
     case 'reviewing':

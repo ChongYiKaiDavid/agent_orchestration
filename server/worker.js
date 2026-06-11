@@ -1,3 +1,4 @@
+import './loadEnv.js';
 import { claimQueuedTask, processTask } from './engine.js';
 
 async function runWorker() {

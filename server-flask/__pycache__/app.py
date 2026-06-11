@@ -3,6 +3,10 @@ import uuid
 import subprocess
 from threading import Thread
 
+# Monkey-patch stdlib for gevent
+from gevent import monkey
+monkey.patch_all()
+
 try:
     import pty
     import select
@@ -17,8 +21,8 @@ from flask_socketio import SocketIO, emit
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev")
 
-# Use threading for SocketIO
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+# Use gevent for SocketIO (more stable with websockets)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent")
 
 
 # Active terminals: session_id -> PTY/process handles
