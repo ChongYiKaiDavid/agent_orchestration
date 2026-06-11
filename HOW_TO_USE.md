@@ -219,6 +219,84 @@ $env:BITBUCKET_TOKEN="your_access_token"
 npm run worker
 ```
 
+#### For GitHub
+```bash
+# Set token in .env or via terminal
+GITHUB_TOKEN="ghp_your_personal_access_token" npm run worker
+
+# Token needs 'repo' scope for push/PR access
+```
+
+---
+
+## 7. Environment Setup (.env.agent_orchestration)
+
+Instead of passing credentials via terminal each time, use the `.env.agent_orchestration` file:
+
+```bash
+# Copy the example file
+cp .env.example .env.agent_orchestration
+
+# Edit this file with your credentials
+```
+
+**Available variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `JIRA_BASE_URL` | Your Jira instance URL |
+| `JIRA_USER` | Jira email |
+| `JIRA_API_TOKEN` | Jira API token |
+| `BITBUCKET_USERNAME` | Bitbucket username |
+| `BITBUCKET_APP_PASSWORD` | Bitbucket app password |
+| `BITBUCKET_HTTPS_TOKEN` | Bitbucket access token for HTTPS |
+| `GITHUB_TOKEN` | GitHub Personal Access Token |
+| `GEMINI_API_KEY` | Google Gemini API key |
+| `GEMINI_MODEL` | Gemini model (default: gemini-2.0-flash) |
+| `FLASK_SOCKET_URL` | Flask Socket.IO URL |
+
+The worker automatically loads these when started.
+
+---
+
+## 8. Agents Edit Real Files
+
+When you provide a **Repository URL**, the AI agents now:
+1. Clone the repository into a temporary workspace
+2. **Edit actual source files** in the working tree (not just output files)
+3. Commit changes to a new branch
+4. Push and create a real Pull Request
+
+This means the agent's changes are **real** - they're in your repository, not just in logs.
+
+---
+
+## 9. Jira Integration
+
+The system can also integrate with Jira to link tasks to Jira tickets:
+
+1. Create a task in the UI
+2. Enter a Jira ticket ID (e.g., `PROJ-123`) in the Task Details
+3. The system will fetch the ticket and link it to your task
+4. Results can be posted back to the Jira ticket as comments
+
+Set up via `.env.agent_orchestration`:
+- `JIRA_BASE_URL` - Your Jira instance URL
+- `JIRA_USER` - Your Jira email
+- `JIRA_API_TOKEN` - Your Jira API token
+
+---
+
+## 10. Cleaning Up Workspaces
+
+After tasks complete, temporary workspace folders accumulate in `server/workspaces/`. You can safely delete these:
+
+```bash
+rm -rf server/workspaces/*
+```
+
+The duplicate `server/server/` folder (if it exists) can also be deleted.
+
 ---
 
 ## Summary
