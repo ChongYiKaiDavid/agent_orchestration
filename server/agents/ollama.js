@@ -1,0 +1,292 @@
+import fs from 'fs';
+import fsPromises from 'fs/promises';
+import path from 'path';
+import { spawn } from 'child_process';
+import https from 'https';
+import http from 'http';
+import { URL } from 'url';
+
+async function writePromptFile(root, prompt) {
+  const resolvedRoot = path.resolve(root);
+  await fs.mkdir(resolvedRoot, { recursive: true });
+  const promptFile = path.join(resolvedRoot, 'prompt.txt');
+  await fs.writeFile(promptFile, prompt, 'utf8');
+  return promptFile;
+}
+
+async function getOllamaCommand() {
+  if (process.env.OLLAMA_PATH) {
+    return process.env.OLLAMA_PATH;
+  }
+  return process.platform === 'win32' ? 'ollama.exe' : 'ollama';
+}
+
+function getModelName() {
+  return process.env.OLLAMA_MODEL || 'codellama';
+}
+
+function getOllamaHost() {
+  return process.env.OLLAMA_HOST || 'http://localhost:11434';
+}
+
+function ollamaGenerate(prompt, model, onStdout, onStderr) {
+  return new Promise((resolve, reject) => {
+    const host = getOllamaHost();
+    const url = new URL(`${host}/api/generate`);
+
+    const postData = JSON.stringify({
+      model,
+      prompt,
+      stream: false,
+    });
+
+    const options = {
+      hostname: url.hostname,
+      port: url.port || (url.protocol === 'https:' ? 443 : 11434),
+      path: '/api/generate',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData),
+      },
+    };
+
+    const protocol = url.protocol === 'https:' ? https : http;
+    const req = protocol.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        const text = chunk.toString();
+        data += text;
+        if (onStdout) onStdout(text);
+      });
+      res.on('end', () => {
+        try {
+          const lastLine = data.split('\n').filter(Boolean).pop();
+          const parsed = lastLine ? JSON.parse(lastLine) : { response: data };
+          resolve({
+            exitCode: 0,
+            output: parsed.response || '',
+            logs: '',
+          });
+        } catch {
+          resolve({
+            exitCode: 0,
+            output: data,
+            logs: '',
+          });
+        }
+      });
+    });
+
+    req.on('error', reject);
+
+    req.write(postData);
+    req.end();
+  });
+}
+
+function writeFilesFromOutput(output, repoPath) {
+  const files = {};
+  const fileRegex = /FILE:\s*([^\s\n]+)\n---\n([\s\S]*?)\n---/g;
+  let match;
+
+  while ((match = fileRegex.exec(output)) !== null) {
+    const filename = match[1];
+    const content = match[2];
+    files[filename] = content;
+  }
+
+  const executed = [];
+  for (const [filename, content] of Object.entries(files)) {
+    try {
+      const filePath = path.join(repoPath, filename);
+      fs.writeFileSync(filePath, content, 'utf8');
+      executed.push(filename);
+    } catch {
+      // ignore
+    }
+  }
+  return executed;
+}
+
+function executeCommandsFromOutput(output, repoPath) {
+  const commandRegex = /(?:^|\n)\s*(\$\s*|`[^`]*`|printf|echo|cat|tee|mkdir|rm\s+-rf|cp|mv|sed|awk)\s+[^\n]*(?:\n\s+[^\n]+)*/gm;
+  const matches = output.match(commandRegex);
+
+  if (!matches || matches.length === 0) {
+    return { executed: [], output };
+  }
+
+  const executed = [];
+  for (const cmd of matches) {
+    try {
+      let cleanCmd = cmd.replace(/^[\$%`]?\s*/, '').replace(/`$/, '').trim();
+      cleanCmd = cleanCmd.replace(/\\\n\s*/g, ' ');
+      if (!cleanCmd || cleanCmd.match(/^(printf|echo|cat|tee|mkdir|rm|cp|mv|sed|awk)$/)) continue;
+      if (cleanCmd.includes('rm -rf') || cleanCmd.includes('format') || cleanCmd.includes(';')) continue;
+      if (cleanCmd.includes('rm ') && !cleanCmd.match(/rm\s+[\w.-]+$/)) continue;
+
+      const { execSync } = require('child_process');
+      execSync(cleanCmd, { cwd: repoPath, encoding: 'utf8', stdio: 'ignore' });
+      executed.push(cleanCmd);
+    } catch {
+      // ignore
+    }
+  }
+
+  return { executed, output };
+}
+
+export async function runOllamaStage({ prompt, stageId, workspace, onStdout, onStderr }) {
+  await writePromptFile(workspace, prompt);
+
+  const repoPath = path.join(workspace, 'repo');
+  const model = getModelName();
+
+  try {
+    const result = await ollamaGenerate(prompt, model, onStdout, onStderr);
+
+    if (repoPath && result.output) {
+      const writtenFiles = writeFilesFromOutput(result.output, repoPath);
+      if (writtenFiles.length > 0) {
+        onStdout?.(`\n[WRITTEN ${writtenFiles.length} files: ${writtenFiles.join(', ')}]\n`);
+      }
+
+      const { executed } = executeCommandsFromOutput(result.output, repoPath);
+      if (executed.length > 0) {
+        onStdout?.(`\n[EXECUTED ${executed.length} commands]\n`);
+      }
+    }
+
+    return result;
+  } catch (error) {
+    console.error('[ollama] HTTP API failed, falling back to CLI:', error.message);
+    const command = await getOllamaCommand();
+
+    return new Promise((resolve) => {
+      const child = spawn(command, ['run', model], {
+        env: {
+          ...process.env,
+          OLLAMA_HOST: getOllamaHost(),
+        },
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.on('data', (chunk) => {
+        const text = chunk.toString();
+        stdout += text;
+        onStdout?.(text);
+      });
+
+      child.stderr.on('data', (chunk) => {
+        const text = chunk.toString();
+        stderr += text;
+        onStderr?.(text);
+      });
+
+      child.stdin.write(prompt);
+      child.stdin.write('\n');
+      child.stdin.end();
+
+      child.on('close', (code) => {
+        const output = stdout.trim();
+
+        if (repoPath && output) {
+          try {
+            const { executed } = executeCommandsFromOutput(output, repoPath);
+            if (executed && executed.length > 0) {
+              onStdout?.(`\n[EXECUTED ${executed.length} commands]\n`);
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        resolve({
+          exitCode: code,
+          output,
+          logs: stderr.trim(),
+        });
+      });
+
+      child.on('error', (err) => {
+        resolve({
+          exitCode: 1,
+          output: '',
+          logs: `Failed to start Ollama: ${err.message}. Make sure Ollama is running (ollama serve)`,
+        });
+      });
+    });
+  }
+}
+
+export function buildStagePrompt(stage, task, previousArtifacts = [], repositoryPath = null) {
+  const lines = [
+    `Stage: ${stage.name}`,
+    `Agent: Ollama (local AI)`,
+    `Task: ${task.title}`,
+    `Repository: ${task.repository || 'not specified'}`,
+    `Target branch: ${task.target_branch || 'not specified'}`,
+    repositoryPath ? `Repository path: ${repositoryPath}` : null,
+    '',
+    `Description: ${task.description || 'No additional description provided.'}`,
+    '',
+  ].filter(Boolean);
+
+  if (previousArtifacts.length > 0) {
+    lines.push('Previous artifacts:');
+    previousArtifacts.forEach((artifact) => lines.push(`- ${artifact}`));
+    lines.push('');
+  }
+
+  switch (stage.id) {
+    case 'planning':
+      lines.push('Produce a short requirements document and a design summary for this task.');
+      lines.push('Write two artifacts: planner.requirements.md and planner.design.md.');
+      lines.push('Format the response clearly and include a final line with VERDICT: GO.');
+      break;
+
+    case 'coding':
+      lines.push('CRITICAL: Edit files by outputting them with special FILE:/---/--- markers.');
+      lines.push('');
+      lines.push('For each file, use this exact format (note the two separate --- lines):');
+      lines.push('FILE: path/to/file.ext');
+      lines.push('---');
+      lines.push('file contents here');
+      lines.push('---');
+      lines.push('');
+      lines.push('Example to update README.md:');
+      lines.push('FILE: README.md');
+      lines.push('---');
+      lines.push('# New Title');
+      lines.push('Some updated content');
+      lines.push('---');
+      lines.push('');
+      lines.push('Multiple files: repeat the FILE: + --- + content + --- block for each file.');
+      lines.push('');
+      lines.push('IMPORTANT: After writing files, verify with git status (inside your head / reasoning).');
+      lines.push('');
+      lines.push('VERDICT: GO - when files are actually modified.');
+      break;
+
+    case 'reviewing':
+      lines.push('Review the implementation diff against the requirements.');
+      lines.push('Write a review in reviewer.review.md.');
+      lines.push('End your response with VERDICT: GO, FAIL, SPEC_FAIL, or ESCALATE.');
+      break;
+
+    default:
+      lines.push('Complete the current stage carefully and include a verdict if required.');
+      break;
+  }
+
+  lines.push('', 'Output rules:');
+  lines.push('- Keep the report text-focused and machine-readable.');
+  lines.push('- Use VERDICT: <value> only when prompted.');
+  lines.push('- If the stage cannot complete, explain why and stop.');
+
+  return lines.join('\n');
+}
+
