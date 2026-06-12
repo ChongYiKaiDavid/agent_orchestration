@@ -48,6 +48,7 @@ python app.py
 * **What to run (Terminal 1):**
 
   ```bash
+  source /Users/jingyin/Downloads/agent_orchestration/server-flask/.venv/bin/activate
   cd server-flask
   # Default (most common): Flask-SocketIO listens on port 5002
   python app.py

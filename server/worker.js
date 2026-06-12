@@ -14,7 +14,7 @@ async function runWorker() {
           await processTask(task);
           console.log(`Worker finished task ${task.id}`);
         } catch (err) {
-          console.error(`Worker failed task ${task.id}:`, err.message);
+          console.error(`Worker failed task ${task.id}:`, err?.stack || err?.message || err);
         }
       } else {
         console.log('No queued task found, waiting...');

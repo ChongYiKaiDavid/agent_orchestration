@@ -25,6 +25,22 @@ const defaultPipelines = [
     builtIn: true,
     stages: [{ id: 'coding', name: 'Coding', agent: 'gemini' }],
   },
+  {
+    id: 'ollama-code-only',
+    name: 'Ollama Code Only',
+    builtIn: true,
+    stages: [{ id: 'coding', name: 'Coding', agent: 'ollama' }],
+  },
+  {
+    id: 'ollama-plan-code-review',
+    name: 'Ollama Plan → Code → Review',
+    builtIn: true,
+    stages: [
+      { id: 'planning', name: 'Planning', agent: 'ollama' },
+      { id: 'coding', name: 'Coding', agent: 'ollama' },
+      { id: 'reviewing', name: 'Reviewing', agent: 'ollama' },
+    ],
+  },
 ];
 
 const PipelinesPage: React.FC = () => {
@@ -131,6 +147,7 @@ const PipelinesPage: React.FC = () => {
                 <select className="pipelines-select" value={currentStage.agent.toLowerCase()} disabled>
                   <option value="devin">Devin</option>
                   <option value="gemini">Gemini CLI</option>
+                  <option value="ollama">Ollama (local)</option>
                 </select>
               </div>
             </div>

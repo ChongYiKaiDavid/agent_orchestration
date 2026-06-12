@@ -6,9 +6,11 @@ import db from './db.js';
 import { getPipeline, listPipelines } from './pipelines.js';
 import { runDevinStage, buildStagePrompt as buildDevinStagePrompt } from './agents/devin.js';
 import { runGeminiStage, buildStagePrompt as buildGeminiStagePrompt } from './agents/gemini.js';
+import { runOllamaStage, buildStagePrompt as buildOllamaStagePrompt } from './agents/ollama.js';
 import { listAgents } from './agents.js';
 import { autoSelectPipelineAndAgent } from './auto-selector.js';
-import { io } from 'socket.io-client';
+import io from 'socket.io-client';
+
 
 const workspaceRoot = path.resolve(process.cwd(), process.env.TEST_WORKSPACE_ROOT || 'server/workspaces');
 
@@ -507,6 +509,8 @@ export async function processTask(task) {
     // Use the correct prompt builder based on agent
     if (stage.agent === 'gemini') {
       prompt = buildGeminiStagePrompt(stage, task, previousOutputs, repositoryPath);
+    } else if (stage.agent === 'ollama') {
+      prompt = buildOllamaStagePrompt(stage, task, previousOutputs, repositoryPath);
     } else {
       // devin and other agents
       prompt = buildDevinStagePrompt(stage, task, previousOutputs, repositoryPath);
@@ -530,6 +534,14 @@ export async function processTask(task) {
     // Use the correct agent based on stage configuration
     if (stage.agent === 'gemini') {
       result = await runGeminiStage({
+        prompt,
+        stageId: stage.id,
+        workspace: stageFolder,
+        onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
+        onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
+      });
+    } else if (stage.agent === 'ollama') {
+      result = await runOllamaStage({
         prompt,
         stageId: stage.id,
         workspace: stageFolder,
@@ -663,7 +675,7 @@ export async function processTask(task) {
             if (pushResult.status === 0) {
               prNumber = branchName;
               // Create actual pull request via Bitbucket API (reuse token from clone)
-              if (token && bitbucketUser && task.repository) {
+              if (process.env.BITBUCKET_HTTPS_TOKEN && bitbucketUser && task.repository) {
                 const httpsMatch = task.repository.match(/^https:\/\/(?:www\.)?bitbucket\.org\/([^/]+)\/([^/]+?)(\.git)?$/i);
                 const sshMatch = task.repository.match(/^git@bitbucket\.org:([^/]+)\/([^/]+?)(\.git)?$/i);
                 let workspace, repoName;
@@ -671,13 +683,19 @@ export async function processTask(task) {
                 else if (sshMatch) { workspace = sshMatch[1]; repoName = sshMatch[2]; }
                 if (workspace && repoName) {
                   try {
+                    // Only attempt PR creation if we actually have a token for API auth
+                    const bitbucketApiToken = process.env.BITBUCKET_HTTPS_TOKEN || process.env.BITBUCKET_TOKEN;
+                    if (!bitbucketApiToken) {
+                      throw new Error('Missing BITBUCKET_HTTPS_TOKEN / BITBUCKET_TOKEN for Bitbucket PR API auth');
+                    }
+
                     const prApiUrl = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repoName}/pullrequests`;
                     const prTitle = task.title || `Agent update: ${branchName}`;
                     const prDesc = `Created by AI agent orchestration for task: ${task.id}\n\nTask: ${task.title}\nBranch: ${branchName}`;
                     const prResp = await fetch(prApiUrl, {
                       method: 'POST',
                       headers: {
-                        'Authorization': `Basic ${Buffer.from(`${bitbucketUser}:${token}`).toString('base64')}`,
+'Authorization': `Basic ${Buffer.from(`${bitbucketUser}:${bitbucketApiToken}`).toString('base64')}`,
                         'Content-Type': 'application/json',
                       },
                       body: JSON.stringify({

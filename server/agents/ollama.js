@@ -8,9 +8,9 @@ import { URL } from 'url';
 
 async function writePromptFile(root, prompt) {
   const resolvedRoot = path.resolve(root);
-  await fs.mkdir(resolvedRoot, { recursive: true });
+  await fsPromises.mkdir(resolvedRoot, { recursive: true });
   const promptFile = path.join(resolvedRoot, 'prompt.txt');
-  await fs.writeFile(promptFile, prompt, 'utf8');
+  await fsPromises.writeFile(promptFile, prompt, 'utf8');
   return promptFile;
 }
 
@@ -30,7 +30,10 @@ function getOllamaHost() {
 }
 
 function ollamaGenerate(prompt, model, onStdout, onStderr) {
+  const timeoutMs = Number(process.env.OLLAMA_HTTP_TIMEOUT_MS || 120000);
+
   return new Promise((resolve, reject) => {
+
     const host = getOllamaHost();
     const url = new URL(`${host}/api/generate`);
 
@@ -60,7 +63,9 @@ function ollamaGenerate(prompt, model, onStdout, onStderr) {
         if (onStdout) onStdout(text);
       });
       res.on('end', () => {
+        clearTimeout(t);
         try {
+
           const lastLine = data.split('\n').filter(Boolean).pop();
           const parsed = lastLine ? JSON.parse(lastLine) : { response: data };
           resolve({
@@ -78,10 +83,23 @@ function ollamaGenerate(prompt, model, onStdout, onStderr) {
       });
     });
 
-    req.on('error', reject);
+    const t = setTimeout(() => {
+      try {
+        req.destroy(new Error(`Ollama HTTP request timed out after ${timeoutMs}ms`));
+      } catch {
+        // ignore
+      }
+      reject(new Error(`Ollama HTTP request timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    req.on('error', (err) => {
+      clearTimeout(t);
+      reject(err);
+    });
 
     req.write(postData);
     req.end();
+
   });
 }
 
