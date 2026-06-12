@@ -111,6 +111,48 @@ export const pipelines = [
       },
     ],
   },
+  {
+    id: 'ollama-plan-code-review',
+    name: 'Ollama Plan ? Code ? Review',
+    description: 'A full 3-stage pipeline using Ollama (local) for planning, coding, and review.',
+    stages: [
+      {
+        id: 'planning',
+        name: 'Planning',
+        agent: 'ollama',
+        summary: 'Create a requirements and design plan for the task using Ollama.',
+        outputFiles: ['planner.requirements.md', 'planner.design.md'],
+      },
+      {
+        id: 'coding',
+        name: 'Coding',
+        agent: 'ollama',
+        summary: 'Generate a code implementation based on the plan using Ollama.',
+        outputFiles: ['implementation.diff.md'],
+      },
+      {
+        id: 'reviewing',
+        name: 'Reviewing',
+        agent: 'ollama',
+        summary: 'Review the implementation and produce a verdict using Ollama.',
+        outputFiles: ['reviewer.review.md'],
+      },
+    ],
+  },
+  {
+    id: 'ollama-code-only',
+    name: 'Ollama Code Only',
+    description: 'A single-stage pipeline using Ollama to generate code.',
+    stages: [
+      {
+        id: 'coding',
+        name: 'Coding',
+        agent: 'ollama',
+        summary: 'Generate an implementation diff using Ollama.',
+        outputFiles: ['implementation.diff.md'],
+      },
+    ],
+  },
 ];
 
 export function listPipelines() {

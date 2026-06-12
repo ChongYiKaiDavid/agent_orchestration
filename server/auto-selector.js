@@ -61,42 +61,62 @@ function detectKeywords(title, description) {
 
 function selectBestAgent(taskType, complexity, keywords) {
   const text = `${taskType} ${complexity} ${keywords.join(' ')}`;
-  
+
+  // If user wants Ollama-only, force it.
+  if (process.env.OLLAMA_ONLY === 'true') {
+    return 'ollama';
+  }
+
   // For planning tasks, prefer Gemini
   if (taskType === 'planning') {
     return 'gemini';
   }
-  
+
   // For docs-only tasks, prefer Gemini
   if (taskType === 'docs') {
     return 'gemini';
   }
-  
+
   // For high complexity coding, prefer Devin
   if (complexity === 'high' && taskType === 'coding') {
     return 'devin';
   }
-  
+
   // For review tasks, prefer Gemini (faster)
   if (taskType === 'review') {
     return 'gemini';
   }
-  
+
   // Default to Devin for coding tasks
   if (taskType === 'coding') {
     return 'devin';
   }
-  
+
   // Fallback to Devin for complex tasks
   if (complexity === 'high') {
     return 'devin';
   }
-  
+
   // Default to hybrid pipeline for balanced approach
   return 'hybrid';
 }
 
 function selectBestPipeline(taskType, complexity, preferredAgent) {
+  // Ollama-only mode
+  if (process.env.OLLAMA_ONLY === 'true' && preferredAgent === 'ollama') {
+    if (complexity === 'high') {
+      return 'ollama-plan-code-review';
+    }
+    if (taskType === 'planning' || taskType === 'review') {
+      return 'ollama-plan-code-review';
+    }
+    if (taskType === 'coding') {
+      if (complexity === 'low') return 'ollama-code-only';
+      return 'ollama-plan-code-review';
+    }
+    return 'ollama-plan-code-review';
+  }
+
   // High complexity tasks need full pipeline
   if (complexity === 'high') {
     if (preferredAgent === 'gemini') {
@@ -106,22 +126,22 @@ function selectBestPipeline(taskType, complexity, preferredAgent) {
     }
     return 'plan-code-review';
   }
-  
+
   // Planning-only tasks
   if (taskType === 'planning') {
     return preferredAgent === 'gemini' ? 'gemini-plan-code-review' : 'plan-code-review';
   }
-  
+
   // Documentation tasks - single stage is fine
   if (taskType === 'docs') {
     return 'gemini-code-only';
   }
-  
+
   // Review tasks
   if (taskType === 'review') {
     return 'gemini-code-only';
   }
-  
+
   // Coding tasks - use hybrid for balanced approach
   if (taskType === 'coding') {
     if (complexity === 'low') {
@@ -129,10 +149,11 @@ function selectBestPipeline(taskType, complexity, preferredAgent) {
     }
     return 'hybrid-gemini-devin';
   }
-  
+
   // Default to hybrid pipeline
   return 'hybrid-gemini-devin';
 }
+
 
 export function autoSelectPipelineAndAgent(task) {
   const title = task.title || '';
