@@ -302,17 +302,6 @@ export async function cloneRepository(repository, branch, destination) {
     let stderr = '';
     let stdout = '';
 
-    child.stdout?.on('data', (d) => {
-      const text = d.toString();
-      stdout += text;
-      process.stdout.write(`[git-clone stdout] ${text}`);
-    });
-    child.stderr?.on('data', (d) => {
-      const text = d.toString();
-      stderr += text;
-      process.stderr.write(`[git-clone stderr] ${text}`);
-    });
-
     const t = setTimeout(async () => {
       try {
         // Kill process group
@@ -791,8 +780,8 @@ export async function processTask(task) {
               
               const bitbucketUsername = process.env.BITBUCKET_USERNAME;
               const bitbucketAppPassword = process.env.BITBUCKET_APP_PASSWORD;
-              const bitbucketToken = process.env.BITBUCKET_TOKEN;
-              const bitbucketMatch = task.repository ? task.repository.match(/(?:https:\/\/bitbucket\.org\/|git@bitbucket\.org:)([^/]+)\/([^.]+)(?:\.git)?/) : null;
+              const bitbucketToken = process.env.BITBUCKET_HTTPS_TOKEN || process.env.BITBUCKET_TOKEN;
+              const bitbucketMatch = task.repository ? task.repository.match(/(?:https:\/\/(?:[^@]+@)?bitbucket\.org\/|git@bitbucket\.org:)([^/]+)\/([^.]+)(?:\.git)?/) : null;
               
               if (githubToken && repoMatch) {
                 const owner = repoMatch[1];

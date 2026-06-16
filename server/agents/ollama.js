@@ -22,7 +22,7 @@ async function getOllamaCommand() {
 }
 
 function getModelName() {
-  return process.env.OLLAMA_MODEL || 'codellama';
+  return process.env.OLLAMA_MODEL || 'qwen2.5-coder:1.5b'; // Use faster model by default
 }
 
 function getOllamaHost() {
@@ -30,7 +30,7 @@ function getOllamaHost() {
 }
 
 function ollamaGenerate(prompt, model, onStdout, onStderr) {
-  const timeoutMs = Number(process.env.OLLAMA_HTTP_TIMEOUT_MS || 120000);
+  const timeoutMs = Number(process.env.OLLAMA_HTTP_TIMEOUT_MS || 300000); // Increased to 5 minutes
 
   return new Promise((resolve, reject) => {
     const host = getOllamaHost();
@@ -102,25 +102,47 @@ function ollamaGenerate(prompt, model, onStdout, onStderr) {
 
 function writeFilesFromOutput(output, repoPath) {
   const files = {};
-  const fileRegex = /FILE:\s*([^\s\n]+)\n---\n([\s\S]*?)\n---/g;
+  // More flexible regex to handle various spacing patterns
+  const fileRegex = /FILE:\s*([^\s\n]+)\s*\n\s*---\s*\n([\s\S]*?)\s*\n\s*---\s*\n/g;
   let match;
 
   while ((match = fileRegex.exec(output)) !== null) {
-    const filename = match[1];
-    const content = match[2];
+    const filename = match[1].trim();
+    const content = match[2].trim();
     files[filename] = content;
+    console.log(`[ollama] Parsed file block: ${filename} (${content.length} chars)`);
   }
 
   const executed = [];
   for (const [filename, content] of Object.entries(files)) {
     try {
       const filePath = path.join(repoPath, filename);
+      console.log(`[ollama] Attempting to write: ${filePath}`);
+      console.log(`[ollama] Repo path: ${repoPath}`);
+      console.log(`[ollama] Filename: ${filename}`);
+      console.log(`[ollama] Content length: ${content.length}`);
+      console.log(`[ollama] Content preview: ${content.substring(0, 50)}...`);
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
       fs.writeFileSync(filePath, content, 'utf8');
       executed.push(filename);
-    } catch {
-      // ignore
+      console.log(`[ollama] Successfully wrote file: ${filename} (${content.length} chars)`);
+      
+      // Verify the write
+      const writtenContent = fs.readFileSync(filePath, 'utf8');
+      if (writtenContent === content) {
+        console.log(`[ollama] Verified file content matches`);
+      } else {
+        console.error(`[ollama] File content mismatch after write!`);
+        console.error(`[ollama] Expected: ${content.substring(0, 50)}...`);
+        console.error(`[ollama] Got: ${writtenContent.substring(0, 50)}...`);
+      }
+    } catch (error) {
+      console.error(`[ollama] Failed to write file ${filename}:`, error.message);
     }
+  }
+
+  if (Object.keys(files).length > 0 && executed.length === 0) {
+    console.error('[ollama] Warning: Parsed files but failed to write any');
   }
 
   return executed;
@@ -157,7 +179,10 @@ function executeCommandsFromOutput(output, repoPath) {
 export async function runOllamaStage({ prompt, stageId, workspace, onStdout, onStderr }) {
   await writePromptFile(workspace, prompt);
 
-  const repoPath = path.join(workspace, 'repo');
+  // The repository is in the parent directory of the stage folder
+  // workspace is: workspaceRoot/taskId/stageId
+  // repo is at: workspaceRoot/taskId/repo
+  const repoPath = path.join(path.dirname(workspace), 'repo');
   const model = getModelName();
 
   try {
@@ -181,7 +206,7 @@ export async function runOllamaStage({ prompt, stageId, workspace, onStdout, onS
     const command = await getOllamaCommand();
 
     return new Promise((resolve) => {
-      const cliTimeoutMs = Number(process.env.OLLAMA_CLI_TIMEOUT_MS || 180000); // 3m
+      const cliTimeoutMs = Number(process.env.OLLAMA_CLI_TIMEOUT_MS || 300000); // Increased to 5 minutes
 
       console.error(`[ollama] CLI fallback starting: ${command} run ${model} (timeout ${cliTimeoutMs}ms)`);
       const child = spawn(command, ['run', model], {
@@ -301,18 +326,34 @@ export function buildStagePrompt(stage, task, previousArtifacts = [], repository
       lines.push('file contents here');
       lines.push('---');
       lines.push('');
-      lines.push('Example to update README.md:');
+      lines.push('IMPORTANT: Generate SUBSTANTIAL, MEANINGFUL code changes.');
+      lines.push('- Do not just add placeholder text');
+      lines.push('- Implement actual functionality requested in the task');
+      lines.push('- Write complete, working code with proper syntax');
+      lines.push('- Include necessary imports, functions, and logic');
+      lines.push('- Make the changes substantial enough to be useful');
+      lines.push('');
+      lines.push('Example to add a greeting function to README.md:');
       lines.push('FILE: README.md');
       lines.push('---');
-      lines.push('# New Title');
-      lines.push('Some updated content');
+      lines.push('# Project README');
+      lines.push('');
+      lines.push('## Greeting Function');
+      lines.push('');
+      lines.push('```javascript');
+      lines.push('function greet(name) {');
+      lines.push('  return `Hello, ${name}! Welcome to our project.`;');
+      lines.push('}');
+      lines.push('```');
+      lines.push('');
+      lines.push('This function provides a personalized greeting message.');
       lines.push('---');
       lines.push('');
       lines.push('Multiple files: repeat the FILE: + --- + content + --- block for each file.');
       lines.push('');
       lines.push('IMPORTANT: After writing files, verify with git status (inside your head / reasoning).');
       lines.push('');
-      lines.push('VERDICT: GO - when files are actually modified.');
+      lines.push('VERDICT: GO - when files are actually modified with substantial changes.');
       break;
 
     case 'reviewing':
