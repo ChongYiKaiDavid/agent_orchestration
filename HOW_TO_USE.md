@@ -173,6 +173,10 @@ This is separate from the agent log stream — the PTY gives you a direct intera
 
 The worker can automatically push branches and open real Pull Requests on GitHub or Bitbucket if you provide the appropriate credentials.
 
+**Supported Repository URL Formats:**
+- GitHub: `https://github.com/owner/repo.git` or `git@github.com:owner/repo.git`
+- Bitbucket: `https://bitbucket.org/workspace/repo.git`, `git@bitbucket.org:workspace/repo.git`, or `https://username@bitbucket.org/workspace/repo.git` (with embedded username)
+
 ### Storing Credentials Permanently (Recommended)
 Instead of typing your tokens every time, you can save them in a `.env` file so the worker automatically loads them:
 1. Copy the `.env.example` file and rename the copy to `.env`.
@@ -198,7 +202,11 @@ GITHUB_TOKEN="ghp_your_token_here" npm run worker
 ```
 
 #### For Bitbucket
-You can use either a **Workspace/Repository Access Token** (Bearer) OR an **App Password** (Basic Auth).
+You can use multiple authentication methods. The system will try each one in order until one succeeds:
+
+1. **BITBUCKET_HTTPS_TOKEN** - Access token for HTTPS operations
+2. **BITBUCKET_TOKEN** - Workspace/Repository Access Token (Bearer)
+3. **BITBUCKET_APP_PASSWORD** - App Password with username (Basic Auth)
 
 **Option A: Using App Password (Recommended for user accounts)**
 Generate an App Password in your Bitbucket settings with `repository:write` and `pullrequest:write` permissions.
@@ -218,7 +226,22 @@ BITBUCKET_USERNAME="your_username" BITBUCKET_APP_PASSWORD="your_app_password" np
 # On Windows PowerShell:
 $env:BITBUCKET_TOKEN="your_access_token"
 npm run worker
+
+# On Mac/Linux:
+BITBUCKET_TOKEN="your_access_token" npm run worker
 ```
+
+**Option C: Using HTTPS Token**
+```bash
+# On Windows PowerShell:
+$env:BITBUCKET_HTTPS_TOKEN="your_https_token"
+npm run worker
+
+# On Mac/Linux:
+BITBUCKET_HTTPS_TOKEN="your_https_token" npm run worker
+```
+
+**Note:** The system will automatically try all available authentication methods in the order above until one succeeds.
 
 #### For GitHub
 ```bash
