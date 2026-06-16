@@ -1,4 +1,4 @@
-import { pipelines } from './pipelines.js';
+import { fallbackPipelines } from './pipelines.js';
 
 const AGENT_CAPABILITIES = {
   devin: {
@@ -165,7 +165,7 @@ export function autoSelectPipelineAndAgent(task) {
   const preferredAgent = selectBestAgent(taskType, complexity, keywords);
   const pipelineId = selectBestPipeline(taskType, complexity, preferredAgent);
   
-  const pipeline = pipelines.find(p => p.id === pipelineId);
+  const pipeline = fallbackPipelines.find(p => p.id === pipelineId);
   
   return {
     pipelineId,

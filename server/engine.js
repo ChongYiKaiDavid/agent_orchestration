@@ -3,12 +3,13 @@ import path from 'path';
 import crypto from 'crypto';
 import { spawn, spawnSync } from 'child_process';
 import db from './db.js';
-import { getPipeline, listPipelines } from './pipelines.js';
+import { getPipeline, listPipelines, getPipelineSync, listPipelinesSync } from './pipelines.js';
 import { runDevinStage, buildStagePrompt as buildDevinStagePrompt } from './agents/devin.js';
 import { runGeminiStage, buildStagePrompt as buildGeminiStagePrompt } from './agents/gemini.js';
 import { runOllamaStage, buildStagePrompt as buildOllamaStagePrompt } from './agents/ollama.js';
 import { listAgents } from './agents.js';
 import { autoSelectPipelineAndAgent } from './auto-selector.js';
+import { attemptRebaseWithResolution } from './conflict-resolver.js';
 import io from 'socket.io-client';
 
 
@@ -30,7 +31,12 @@ function getLogSocket() {
     return _logSocket;
   }
 
-  const flaskUrl = process.env.FLASK_SOCKET_URL || 'http://localhost:5002';
+  // If FLASK_SOCKET_URL isn't explicitly provided, skip socket connection entirely.
+  // This prevents worker execution from being spammed/having noisy connect attempts.
+  const flaskUrl = process.env.FLASK_SOCKET_URL;
+  if (!flaskUrl) {
+    return null;
+  }
 
   _logSocket = io(flaskUrl, {
     transports: [process.env.FLASK_SOCKET_TRANSPORT || 'websocket'],
@@ -94,7 +100,7 @@ async function streamLog(taskId, stageId, type, data, end = false) {
   try {
     // Don't block waiting for socket - just skip if not connected
     const socket = getLogSocket();
-    if (!socket.connected) {
+    if (!socket || !socket.connected) {
       // Silently skip log streaming if socket not available
       return;
     }
@@ -223,8 +229,9 @@ export async function cloneRepository(repository, branch, destination) {
   // Support token-based HTTPS cloning.
   // Use BITBUCKET_USERNAME with BITBUCKET_HTTPS_TOKEN as password:
   //   https://username:token@bitbucket.org/<workspace>/<repo>.git
-  const token = process.env.BITBUCKET_HTTPS_TOKEN;
-  // Reuse bitbucketUser from earlier
+  // Also support BITBUCKET_TOKEN as an alias.
+  const token = process.env.BITBUCKET_HTTPS_TOKEN || process.env.BITBUCKET_TOKEN;
+
   if (token && bitbucketUser && httpsMatch) {
     const workspace = httpsMatch[1];
     const repoName = httpsMatch[2];
@@ -235,6 +242,7 @@ export async function cloneRepository(repository, branch, destination) {
     const repoName = sshMatch[2];
     effectiveRepoUrl = `https://${encodeURIComponent(bitbucketUser)}:${encodeURIComponent(token)}@bitbucket.org/${workspace}/${repoName}.git`;
   }
+
 
   // GitHub token-based HTTPS cloning.
   // Use GITHUB_TOKEN as PAT for HTTPS clones/pushes.
@@ -261,13 +269,21 @@ export async function cloneRepository(repository, branch, destination) {
     ...process.env,
     GIT_TERMINAL_PROMPT: '0',
     // Avoid SSH hostkey / yes-no prompts.
-    GIT_SSH_COMMAND: 'ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes',
+    GIT_SSH_COMMAND: 'ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/dev/null -o BatchMode=yes',
     // If a redirect requires auth, this helps git avoid opening editors.
     SSH_ASKPASS: 'echo',
+
+    // Fail fast when the connection is stalled (helps prevent “silent hang”).
+    GIT_HTTP_LOW_SPEED_LIMIT: process.env.GIT_HTTP_LOW_SPEED_LIMIT || '1000', // bytes/sec
+    GIT_HTTP_LOW_SPEED_TIME: process.env.GIT_HTTP_LOW_SPEED_TIME || '20', // seconds
+
+    // More verbose HTTP diagnostics (useful when the clone appears stuck).
+    GIT_CURL_VERBOSE: process.env.GIT_CURL_VERBOSE || '1',
   };
 
   console.log('[cloneRepository] effectiveRepoUrl:', effectiveRepoUrl);
   args.push(effectiveRepoUrl, destination);
+  console.log('[cloneRepository] git args:', JSON.stringify(args));
 
   const cloneTimeoutMs = Number(process.env.CLONE_TIMEOUT_MS || 600000); // default 10 minutes
   const { spawn } = await import('child_process');
@@ -281,11 +297,21 @@ export async function cloneRepository(repository, branch, destination) {
       detached: true,
     });
 
+    console.log('[cloneRepository] git clone started pid=', child.pid);
+
     let stderr = '';
     let stdout = '';
 
-    child.stdout?.on('data', (d) => { stdout += d.toString(); });
-    child.stderr?.on('data', (d) => { stderr += d.toString(); });
+    child.stdout?.on('data', (d) => {
+      const text = d.toString();
+      stdout += text;
+      process.stdout.write(`[git-clone stdout] ${text}`);
+    });
+    child.stderr?.on('data', (d) => {
+      const text = d.toString();
+      stderr += text;
+      process.stderr.write(`[git-clone stderr] ${text}`);
+    });
 
     const t = setTimeout(async () => {
       try {
@@ -434,7 +460,7 @@ export async function processTask(task) {
     details: JSON.stringify({ selectedAgent: auto.selectedAgent, pipelineId: auto.pipelineId, reasoning: auto.reasoning }),
   });
 
-  const pipeline = getPipeline(auto.pipelineId);
+  const pipeline = await getPipeline(auto.pipelineId);
   console.log('[processTask] pipeline:', pipeline ? pipeline.name : 'NOT FOUND');
   if (!pipeline) {
     recordActivity({
@@ -668,6 +694,44 @@ export async function processTask(task) {
             spawnSync('git', ['checkout', '-b', branchName], { cwd: repositoryPath });
             spawnSync('git', ['add', '.'], { cwd: repositoryPath });
             spawnSync('git', ['commit', '-m', `Agent update for task: ${task.title}`], { cwd: repositoryPath });
+            
+            // Rebase-before-push guardrail with conflict resolution
+            if (task.target_branch) {
+              console.log(`[processTask] Attempting rebase-before-push to ${task.target_branch}`);
+              const rebaseResult = await attemptRebaseWithResolution(repositoryPath, task.target_branch, task.id);
+              
+              if (rebaseResult.success) {
+                console.log(`[processTask] Rebase-before-push successful${rebaseResult.conflicts ? ' with conflict resolution' : ''}`);
+                if (rebaseResult.conflicts) {
+                  recordActivity({
+                    taskId: task.id,
+                    event_type: 'conflict_resolved',
+                    message: `Rebase conflicts resolved automatically (${rebaseResult.resolved} file(s))`,
+                    details: JSON.stringify(rebaseResult),
+                  });
+                }
+              } else if (rebaseResult.manualTask) {
+                console.log(`[processTask] Rebase conflicts require manual resolution. Created task: ${rebaseResult.manualTask}`);
+                recordActivity({
+                  taskId: task.id,
+                  event_type: 'conflict_manual',
+                  message: 'Rebase conflicts require manual resolution. Created separate task.',
+                  details: JSON.stringify({ manualTask: rebaseResult.manualTask, failedFiles: rebaseResult.failedFiles }),
+                });
+                // Skip push for this task since manual resolution is needed
+                db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run('conflict_resolution', now(), task.id);
+                return;
+              } else {
+                console.warn(`[processTask] Rebase-before-push failed: ${rebaseResult.error}. Proceeding with push anyway.`);
+                recordActivity({
+                  taskId: task.id,
+                  event_type: 'rebase_failed',
+                  message: `Rebase-before-push failed: ${rebaseResult.error}. Proceeding with push.`,
+                  details: JSON.stringify(rebaseResult),
+                });
+              }
+            }
+            
             // Push using credentials configured above
             const pushResult = spawnSync('git', ['push', '-u', 'origin', branchName], { cwd: repositoryPath, encoding: 'utf8' });
 
@@ -800,6 +864,14 @@ export async function processTask(task) {
                 }
               } else {
                 console.log('[processTask] Skipping real PR creation: missing provider token/credentials or not a supported repository.');
+                console.log('[processTask] PR creds debug:', {
+                  BITBUCKET_USERNAME: process.env.BITBUCKET_USERNAME ? '***' : null,
+                  BITBUCKET_HTTPS_TOKEN: process.env.BITBUCKET_HTTPS_TOKEN ? '***' : null,
+                  BITBUCKET_TOKEN: process.env.BITBUCKET_TOKEN ? '***' : null,
+                  BITBUCKET_APP_PASSWORD: process.env.BITBUCKET_APP_PASSWORD ? '***' : null,
+                  GITHUB_TOKEN: process.env.GITHUB_TOKEN ? '***' : null,
+                  repo: task.repository || null,
+                });
               }
             } else {
               console.error(`Git push failed: ${pushResult.stderr}`);
@@ -830,11 +902,11 @@ export async function processTask(task) {
     db.prepare('UPDATE executions SET status = ?, completed_at = ? WHERE id = ?').run('failed', now(), executionId);
   }
 }
-export function getPipelineDefinitions() {
-  return listPipelines();
+export async function getPipelineDefinitions() {
+  return await listPipelines();
 }
 
-export { getPipeline } from './pipelines.js';
+export { getPipeline, getPipelineSync } from './pipelines.js';
 
 export function getAutoSelection(task) { return autoSelectPipelineAndAgent(task); }
 

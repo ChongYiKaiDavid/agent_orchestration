@@ -33,7 +33,6 @@ function ollamaGenerate(prompt, model, onStdout, onStderr) {
   const timeoutMs = Number(process.env.OLLAMA_HTTP_TIMEOUT_MS || 120000);
 
   return new Promise((resolve, reject) => {
-
     const host = getOllamaHost();
     const url = new URL(`${host}/api/generate`);
 
@@ -65,7 +64,6 @@ function ollamaGenerate(prompt, model, onStdout, onStderr) {
       res.on('end', () => {
         clearTimeout(t);
         try {
-
           const lastLine = data.split('\n').filter(Boolean).pop();
           const parsed = lastLine ? JSON.parse(lastLine) : { response: data };
           resolve({
@@ -99,7 +97,6 @@ function ollamaGenerate(prompt, model, onStdout, onStderr) {
 
     req.write(postData);
     req.end();
-
   });
 }
 
@@ -118,12 +115,14 @@ function writeFilesFromOutput(output, repoPath) {
   for (const [filename, content] of Object.entries(files)) {
     try {
       const filePath = path.join(repoPath, filename);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
       fs.writeFileSync(filePath, content, 'utf8');
       executed.push(filename);
     } catch {
       // ignore
     }
   }
+
   return executed;
 }
 
@@ -182,12 +181,17 @@ export async function runOllamaStage({ prompt, stageId, workspace, onStdout, onS
     const command = await getOllamaCommand();
 
     return new Promise((resolve) => {
+      const cliTimeoutMs = Number(process.env.OLLAMA_CLI_TIMEOUT_MS || 180000); // 3m
+
+      console.error(`[ollama] CLI fallback starting: ${command} run ${model} (timeout ${cliTimeoutMs}ms)`);
       const child = spawn(command, ['run', model], {
         env: {
           ...process.env,
           OLLAMA_HOST: getOllamaHost(),
         },
       });
+
+      console.error('[ollama] CLI child pid=', child.pid);
 
       let stdout = '';
       let stderr = '';
@@ -197,6 +201,22 @@ export async function runOllamaStage({ prompt, stageId, workspace, onStdout, onS
         stdout += text;
         onStdout?.(text);
       });
+
+      const timeoutMs = Number(process.env.OLLAMA_CLI_TIMEOUT_MS || 180000); // 3m
+
+      const timeout = setTimeout(() => {
+        console.error(`[ollama] CLI fallback timed out after ${timeoutMs}ms; killing pid=${child.pid}`);
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          // ignore
+        }
+        resolve({
+          exitCode: 124,
+          output: stdout.trim(),
+          logs: stderr.trim() + `\n[ollama] CLI timeout after ${timeoutMs}ms`,
+        });
+      }, timeoutMs);
 
       child.stderr.on('data', (chunk) => {
         const text = chunk.toString();
@@ -213,6 +233,12 @@ export async function runOllamaStage({ prompt, stageId, workspace, onStdout, onS
 
         if (repoPath && output) {
           try {
+            // IMPORTANT: Apply FILE:/---/--- blocks in CLI fallback too.
+            const writtenFiles = writeFilesFromOutput(output, repoPath);
+            if (writtenFiles && writtenFiles.length > 0) {
+              onStdout?.(`\n[WRITTEN ${writtenFiles.length} files: ${writtenFiles.join(', ')}]\n`);
+            }
+
             const { executed } = executeCommandsFromOutput(output, repoPath);
             if (executed && executed.length > 0) {
               onStdout?.(`\n[EXECUTED ${executed.length} commands]\n`);
@@ -307,4 +333,3 @@ export function buildStagePrompt(stage, task, previousArtifacts = [], repository
 
   return lines.join('\n');
 }
-

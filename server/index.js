@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import routes from './routes.js';
 import { processTask, claimQueuedTask } from './engine.js';
+import { startPRPolling } from './pr-poller.js';
 
 const app = express();
 const port = process.env.PORT || 5174;
@@ -18,6 +19,12 @@ app.get('/', (req, res) => {
 app.listen(port, '127.0.0.1', () => {
   console.log(`Backend server listening on http://127.0.0.1:${port}`);
 });
+
+// Start PR polling if enabled
+if (process.env.ENABLE_PR_POLLING === 'true') {
+  startPRPolling();
+  console.log('[server] PR polling enabled');
+}
 
 if (process.env.START_WORKER === '1') {
   setInterval(async () => {

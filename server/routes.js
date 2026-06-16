@@ -19,6 +19,8 @@ import {
   getAutoSelection,
 } from './engine.js';
 import { runDevinStage } from './agents/devin.js';
+import { getOrphanRecoveryStats, recoverOrphanedTasks } from './orphan-recovery.js';
+import { getPRPollingStats, pollAllPRs, startPRPolling, stopPRPolling } from './pr-poller.js';
 
 const router = express.Router();
 
@@ -212,12 +214,14 @@ router.get('/events', (req, res) => {
   res.json(getEvents());
 });
 
-router.get('/pipelines', (req, res) => {
-  res.json(getPipelineDefinitions());
+router.get('/pipelines', async (req, res) => {
+  const pipelines = await getPipelineDefinitions();
+  res.json(pipelines);
 });
 
-router.get('/pipelines/:id', (req, res) => {
-  const pipeline = getPipelineDefinitions().find((p) => p.id === req.params.id);
+router.get('/pipelines/:id', async (req, res) => {
+  const pipelines = await getPipelineDefinitions();
+  const pipeline = pipelines.find((p) => p.id === req.params.id);
   if (!pipeline) {
     return res.status(404).json({ error: 'Pipeline not found' });
   }
@@ -226,6 +230,38 @@ router.get('/pipelines/:id', (req, res) => {
 
 router.get('/agents', (req, res) => {
   res.json(getAgentDefinitions());
+});
+
+// Orphan recovery endpoints
+router.get('/admin/orphan-stats', (req, res) => {
+  const stats = getOrphanRecoveryStats();
+  res.json(stats);
+});
+
+router.post('/admin/recover-orphans', (req, res) => {
+  const result = recoverOrphanedTasks();
+  res.json(result);
+});
+
+// PR polling endpoints
+router.get('/admin/pr-stats', (req, res) => {
+  const stats = getPRPollingStats();
+  res.json(stats);
+});
+
+router.post('/admin/poll-prs', (req, res) => {
+  const result = pollAllPRs();
+  res.json(result);
+});
+
+router.post('/admin/pr-polling/start', (req, res) => {
+  const interval = startPRPolling();
+  res.json({ success: true, message: 'PR polling started' });
+});
+
+router.post('/admin/pr-polling/stop', (req, res) => {
+  stopPRPolling();
+  res.json({ success: true, message: 'PR polling stopped' });
 });
 
 export default router;

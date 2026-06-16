@@ -1,10 +1,22 @@
 import './loadEnv.js';
 import { claimQueuedTask, processTask } from './engine.js';
+import { recordHeartbeat, startOrphanRecoveryWatchdog } from './orphan-recovery.js';
 
 async function runWorker() {
   console.log('Worker loop started.');
+  
+  // Start orphan recovery watchdog if enabled
+  let watchdogInterval = null;
+  if (process.env.ENABLE_ORPHAN_RECOVERY === 'true') {
+    watchdogInterval = startOrphanRecoveryWatchdog();
+    console.log('[worker] Orphan recovery watchdog enabled');
+  }
+  
   while (true) {
     try {
+      // Record heartbeat
+      recordHeartbeat();
+      
       const task = claimQueuedTask();
       if (task) {
         console.log(`Worker claimed task ${task.id}`);

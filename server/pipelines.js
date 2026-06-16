@@ -1,4 +1,7 @@
-export const pipelines = [
+import { loadPipelines as loadYamlPipelines, getPipelineById } from './pipeline-loader.js';
+
+// Fallback JavaScript pipeline definitions (used if YAML files are not found)
+const fallbackPipelines = [
   {
     id: 'code-only',
     name: 'Code Only',
@@ -15,7 +18,7 @@ export const pipelines = [
   },
   {
     id: 'plan-code-review',
-    name: 'Plan ? Code ? Review',
+    name: 'Plan → Code → Review',
     description: 'Create a plan, implement the code, then review it.',
     stages: [
       {
@@ -57,7 +60,7 @@ export const pipelines = [
   },
   {
     id: 'gemini-plan-code-review',
-    name: 'Gemini Plan ? Code ? Review',
+    name: 'Gemini Plan → Code → Review',
     description: 'Multi-stage pipeline using Gemini CLI: plan, implement, then review.',
     stages: [
       {
@@ -85,7 +88,7 @@ export const pipelines = [
   },
   {
     id: 'hybrid-gemini-devin',
-    name: 'Hybrid: Gemini Plan ? Devin Code ? Review',
+    name: 'Hybrid: Gemini Plan → Devin Code → Review',
     description: 'Use Gemini for planning, Devin for coding, then review.',
     stages: [
       {
@@ -113,7 +116,7 @@ export const pipelines = [
   },
   {
     id: 'ollama-plan-code-review',
-    name: 'Ollama Plan ? Code ? Review',
+    name: 'Ollama Plan → Code → Review',
     description: 'A full 3-stage pipeline using Ollama (local) for planning, coding, and review.',
     stages: [
       {
@@ -155,10 +158,63 @@ export const pipelines = [
   },
 ];
 
-export function listPipelines() {
-  return pipelines;
+// Cache for loaded pipelines
+let cachedPipelines = null;
+let loadedFromYaml = false;
+
+/**
+ * Load pipelines from YAML files or fallback to JavaScript definitions
+ */
+async function initializePipelines() {
+  if (cachedPipelines !== null) {
+    return cachedPipelines;
+  }
+
+  const yamlPipelines = await loadYamlPipelines();
+  if (yamlPipelines) {
+    cachedPipelines = yamlPipelines;
+    loadedFromYaml = true;
+  } else {
+    cachedPipelines = fallbackPipelines;
+    loadedFromYaml = false;
+  }
+  return cachedPipelines;
 }
 
-export function getPipeline(id) {
+/**
+ * Get all pipelines (async initialization)
+ */
+export async function listPipelines() {
+  return await initializePipelines();
+}
+
+/**
+ * Get a specific pipeline by ID
+ */
+export async function getPipeline(id) {
+  const pipelines = await initializePipelines();
   return pipelines.find((pipeline) => pipeline.id === id) || null;
 }
+
+/**
+ * Synchronous version for backward compatibility (uses cached pipelines)
+ */
+export function listPipelinesSync() {
+  if (cachedPipelines === null) {
+    return fallbackPipelines;
+  }
+  return cachedPipelines;
+}
+
+/**
+ * Synchronous getPipeline for backward compatibility
+ */
+export function getPipelineSync(id) {
+  if (cachedPipelines === null) {
+    return fallbackPipelines.find((pipeline) => pipeline.id === id) || null;
+  }
+  return cachedPipelines.find((pipeline) => pipeline.id === id) || null;
+}
+
+// Export the fallback pipelines for reference
+export { fallbackPipelines };
