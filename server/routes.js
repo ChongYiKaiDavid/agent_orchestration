@@ -64,6 +64,7 @@ router.post('/tasks/from-jira', express.json(), (req, res) => {
     priority,
     links,
     attachments,
+    key,
 
     // Optional orchestration fields
     repository,
@@ -102,6 +103,7 @@ router.post('/tasks/from-jira', express.json(), (req, res) => {
     priority: priority || 'medium',
     repository: repository || null,
     targetBranch: targetBranch || null,
+    jira_ticket: key || null,
   });
 
   res.status(201).json(task);
@@ -265,4 +267,3 @@ router.post('/admin/pr-polling/stop', (req, res) => {
 });
 
 export default router;
-
