@@ -18,6 +18,10 @@ The system consists of four main components:
 - 🔗 **Git Integration** - Clone repositories, make real code changes, create PRs on GitHub/Bitbucket
 - 🎫 **Jira Integration** - Link tasks to Jira tickets with automatic commit message formatting
 - 📡 **Real-time Logs** - Live terminal streaming via Socket.IO
+- 🔔 **Real-time Notifications** - WebSocket-based notifications for task lifecycle events
+- 📊 **Pipeline Visualizer** - Visual representation of pipeline stages with real-time status updates
+- 🔀 **PR Tracking** - Monitor pull request status with automatic polling and status updates
+- 🧪 **Automated Test Execution** - Detect test frameworks and run tests with result visualization
 - 🌙 **Dark Themed UI** - Modern React dashboard with responsive design
 - 🧪 **Testing** - Unit tests for frontend components
 
@@ -27,7 +31,17 @@ The system consists of four main components:
 agent_orchestration/
 ├── src/                          # Frontend React/TypeScript
 │   ├── components/
-│   │   └── layout/
+│   │   ├── layout/
+│   │   │   ├── Header.tsx
+│   │   │   ├── Layout.tsx
+│   │   │   └── Sidebar.tsx
+│   │   ├── sections/
+│   │   │   ├── Notifications.tsx
+│   │   │   ├── PipelineVisualizer.tsx
+│   │   │   ├── PRTracking.tsx
+│   │   │   └── TestResults.tsx
+│   │   └── terminal/
+│   │       └── Terminal.tsx
 │   ├── pages/
 │   │   ├── Activity.tsx
 │   │   ├── Agents.tsx
@@ -35,7 +49,8 @@ agent_orchestration/
 │   │   ├── Dashboard.tsx
 │   │   ├── Decompose.tsx
 │   │   ├── Pipelines.tsx
-│   │   └── Settings.tsx
+│   │   ├── Settings.tsx
+│   │   └── TaskDetails.tsx
 │   ├── __tests__/
 │   ├── App.tsx
 │   └── main.tsx
@@ -51,7 +66,9 @@ agent_orchestration/
 │   ├── index.js                  # Express API server
 │   ├── worker.js                 # Background worker
 │   ├── db.js                     # SQLite database
-│   └── routes.js                 # API routes
+│   ├── routes.js                 # API routes
+│   ├── pr-poller.js              # PR status polling service
+│   └── orphan-recovery.js        # Orphaned task recovery
 ├── server-flask/                 # Flask Socket.IO server
 │   ├── app.py                    # Flask application
 │   └── requirements.txt          # Python dependencies
@@ -155,6 +172,7 @@ The system uses SQLite with the following main tables:
 - **artifacts** - Generated artifacts from stages
 - **pull_requests** - Created PR records
 - **activity_log** - System activity tracking
+- **notifications** - Real-time notifications for task lifecycle events
 
 ## Git Integration
 
@@ -192,6 +210,39 @@ curl -X POST http://localhost:5174/api/tasks/from-jira \
 
 The Jira ticket number is automatically included in commit messages and PR titles.
 
+## New Features
+
+### Real-time Notifications
+The system provides WebSocket-based notifications for task lifecycle events:
+- Task created, started, completed, failed
+- Pull request created
+- Notifications are displayed in the header with unread count
+- Mark notifications as read individually or all at once
+- Notifications are persisted in the database
+
+### Pipeline Visualizer
+Visual representation of pipeline execution with real-time status updates:
+- Shows pipeline stages (planning → coding → reviewing)
+- Real-time status indicators (pending, running, completed, failed)
+- Stage details with timestamps
+- Automatic updates via Socket.IO
+
+### PR Tracking
+Monitor pull request status with automatic polling:
+- View all PRs or PRs for a specific task
+- Status indicators (open, merged, closed, approved, changes_requested)
+- Automatic polling every 5 minutes
+- Direct links to GitHub/Bitbucket
+- PR details panel with metadata
+
+### Automated Test Execution
+Detect and run tests in the repository:
+- Automatic test framework detection (Jest, Vitest, Mocha, Pytest, unittest)
+- One-click test execution from Task Details
+- Test results visualization with pass/fail counts
+- Pass rate indicator
+- Full test output display
+
 ## Frontend Development
 
 ### Theme Colors
@@ -201,7 +252,11 @@ Edit `src/index.css` to customize colors:
 
 ### Components
 - **Sidebar** - Navigation menu with responsive mobile support
-- **Header** - System status metrics with mobile menu toggle
+- **Header** - System status metrics with notification bell
+- **Notifications** - Real-time notification panel with unread count
+- **PipelineVisualizer** - Visual pipeline stage progress with status indicators
+- **PRTracking** - Pull request status monitoring with polling
+- **TestResults** - Automated test execution with results visualization
 - **RecentTasks** - Task list with status, agents, and PR links
 - **CreateTask** - Task creation form with repository and pipeline selection
 - **Dashboard** - Overview of system status and recent activity

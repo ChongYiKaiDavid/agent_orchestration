@@ -101,6 +101,22 @@ def on_join_task(data):
     emit("joined-task", {"taskId": task_id})
 
 
+@socketio.on("notification")
+def on_notification(data):
+    """Receive notification from Node.js backend and broadcast to all clients."""
+    print(f"[DEBUG] notification -> broadcast: {data}")
+    socketio.emit("notification", data)
+
+
+@app.route("/broadcast-notification", methods=["POST"])
+def broadcast_notification():
+    """HTTP endpoint for Node.js backend to trigger notification broadcasts."""
+    data = request.json
+    print(f"[DEBUG] HTTP broadcast-notification: {data}")
+    socketio.emit("notification", data)
+    return {"success": True}
+
+
 
 def _spawn_shell():
     """Spawn an interactive shell in a PTY."""

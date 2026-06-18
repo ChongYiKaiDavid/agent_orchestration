@@ -92,6 +92,18 @@ function initSchema() {
       details TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      task_id TEXT,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      message TEXT,
+      data TEXT,
+      read INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   
   // Add jira_ticket column to existing tasks table if it doesn't exist

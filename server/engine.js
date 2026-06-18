@@ -13,7 +13,7 @@ import { attemptRebaseWithResolution } from './conflict-resolver.js';
 import io from 'socket.io-client';
 
 
-const workspaceRoot = path.resolve(process.cwd(), process.env.TEST_WORKSPACE_ROOT || 'server/workspaces');
+export const workspaceRoot = path.resolve(process.cwd(), process.env.TEST_WORKSPACE_ROOT || 'server/workspaces');
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Real-time log streamer — connects to Flask-SocketIO and forwards agent output
@@ -371,11 +371,79 @@ export function createTask(payload) {
     message: 'Task created and queued for execution.',
     details: JSON.stringify({ pipeline: pipelineId, repository: payload.repository }),
   });
+  
+  createNotification({
+    userId: null,
+    taskId: id,
+    type: 'task_created',
+    title: 'Task Created',
+    message: `New task "${payload.title}" has been created and queued.`,
+    data: { pipeline: pipelineId, repository: payload.repository }
+  });
+  
   return getTaskById(id);
 }
 export function getTaskById(id) {
   const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
   return row || null;
+}
+
+export function createNotification(payload) {
+  const id = crypto.randomUUID();
+  const insert = db.prepare(`
+    INSERT INTO notifications (id, user_id, task_id, type, title, message, data, read, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+  `);
+  insert.run(
+    id,
+    payload.userId || null,
+    payload.taskId || null,
+    payload.type,
+    payload.title,
+    payload.message || null,
+    payload.data ? JSON.stringify(payload.data) : null,
+    now(),
+  );
+  
+  const notification = getNotificationById(id);
+  
+  // Broadcast notification via Flask Socket.IO
+  const flaskUrl = process.env.FLASK_SOCKET_URL || 'http://localhost:5002';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+  
+  fetch(`${flaskUrl}/broadcast-notification`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(notification),
+    signal: controller.signal
+  })
+    .then(() => clearTimeout(timeout))
+    .catch(err => {
+      clearTimeout(timeout);
+      console.error('[createNotification] Failed to broadcast:', err);
+    });
+  
+  return notification;
+}
+
+export function getNotificationById(id) {
+  const row = db.prepare('SELECT * FROM notifications WHERE id = ?').get(id);
+  return row || null;
+}
+
+export function getNotifications(userId, limit = 50) {
+  const rows = db.prepare(`
+    SELECT * FROM notifications 
+    WHERE user_id = ? OR user_id IS NULL
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(userId || null, limit);
+  return rows;
+}
+
+export function markNotificationAsRead(id) {
+  db.prepare('UPDATE notifications SET read = 1 WHERE id = ?').run(id);
 }
 export function listTasks() {
   return db.prepare('SELECT * FROM tasks ORDER BY updated_at DESC').all();
@@ -429,6 +497,16 @@ export async function deleteTask(taskId) {
 
 export async function processTask(task) {
   console.log('[processTask] START');
+  
+  createNotification({
+    userId: null,
+    taskId: task.id,
+    type: 'task_started',
+    title: 'Task Started',
+    message: `Task "${task.title}" has started processing.`,
+    data: { pipeline: task.pipeline_id }
+  });
+  
   // Use task's pipeline_id if specified (not 'auto'), otherwise auto-select
   let auto;
   if (task.pipeline_id && task.pipeline_id !== 'auto') {
@@ -876,6 +954,15 @@ export async function processTask(task) {
                   prUrl = prData.links.html.href;
                   prNumber = prData.id.toString();
                   console.log(`[processTask] PR created successfully: ${prUrl}`);
+                  
+                  createNotification({
+                    userId: null,
+                    taskId: task.id,
+                    type: 'pr_created',
+                    title: 'Pull Request Created',
+                    message: `Pull request created for task "${task.title}"`,
+                    data: { prUrl, prNumber }
+                  });
                 } else {
                   console.error(`[processTask] Bitbucket API failed to create PR with all auth methods. Last error: ${lastError}`);
                 }
@@ -912,11 +999,38 @@ export async function processTask(task) {
         message: 'Task pipeline completed and changes pushed to branch.',
         details: JSON.stringify({ prCreated: true, branch: prNumber }),
       });
+      
+      createNotification({
+        userId: null,
+        taskId: task.id,
+        type: 'task_completed',
+        title: 'Task Completed',
+        message: `Task "${task.title}" has completed successfully with PR created.`,
+        data: { prUrl, prNumber }
+      });
     } else {
       db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run('completed', now(), task.id);
+      
+      createNotification({
+        userId: null,
+        taskId: task.id,
+        type: 'task_completed',
+        title: 'Task Completed',
+        message: `Task "${task.title}" has completed successfully.`,
+        data: { status: 'completed' }
+      });
     }
   } else {
     db.prepare('UPDATE executions SET status = ?, completed_at = ? WHERE id = ?').run('failed', now(), executionId);
+    
+    createNotification({
+      userId: null,
+      taskId: task.id,
+      type: 'task_failed',
+      title: 'Task Failed',
+      message: `Task "${task.title}" has failed during execution.`,
+      data: { status: 'failed' }
+    });
   }
 }
 export async function getPipelineDefinitions() {
@@ -926,6 +1040,180 @@ export async function getPipelineDefinitions() {
 export { getPipeline, getPipelineSync } from './pipelines.js';
 
 export function getAutoSelection(task) { return autoSelectPipelineAndAgent(task); }
+
+/**
+ * Detect test framework in a repository
+ */
+export function detectTestFramework(repositoryPath) {
+  const frameworks = {
+    jest: ['package.json', 'jest.config.js', 'jest.config.ts'],
+    vitest: ['vitest.config.js', 'vitest.config.ts', 'vite.config.js'],
+    mocha: ['test/mocha.opts', '.mocharc.js', '.mocharc.json'],
+    pytest: ['pytest.ini', 'pyproject.toml', 'setup.cfg'],
+    unittest: ['tests/', 'test/'],
+  };
+
+  for (const [framework, files] of Object.entries(frameworks)) {
+    for (const file of files) {
+      const filePath = path.join(repositoryPath, file);
+      try {
+        if (fs.existsSync(filePath)) {
+          return framework;
+        }
+      } catch {
+        // Continue checking
+      }
+    }
+  }
+
+  // Check for common test directories
+  const testDirs = ['test', 'tests', '__tests__', 'spec'];
+  for (const dir of testDirs) {
+    const dirPath = path.join(repositoryPath, dir);
+    try {
+      if (fs.existsSync(dirPath)) {
+        // Default to jest for JS projects, pytest for Python
+        if (fs.existsSync(path.join(repositoryPath, 'package.json'))) {
+          return 'jest';
+        } else if (fs.existsSync(path.join(repositoryPath, 'requirements.txt')) || 
+                   fs.existsSync(path.join(repositoryPath, 'pyproject.toml'))) {
+          return 'pytest';
+        }
+      }
+    } catch {
+      // Continue checking
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get test command for detected framework
+ */
+export function getTestCommand(framework) {
+  const commands = {
+    jest: 'npm test -- --passWithNoTests',
+    vitest: 'npm test -- --run',
+    mocha: 'npm test',
+    pytest: 'pytest --tb=short',
+    unittest: 'python -m unittest discover -s . -p "test_*.py"',
+  };
+  return commands[framework] || null;
+}
+
+/**
+ * Run tests in workspace
+ */
+export async function runTests(taskId, repositoryPath) {
+  const framework = detectTestFramework(repositoryPath);
+  if (!framework) {
+    return {
+      success: false,
+      message: 'No test framework detected',
+      framework: null,
+    };
+  }
+
+  const command = getTestCommand(framework);
+  if (!command) {
+    return {
+      success: false,
+      message: `No test command found for framework: ${framework}`,
+      framework,
+    };
+  }
+
+  console.log(`[runTests] Running tests with ${framework}: ${command}`);
+
+  try {
+    const result = spawnSync(command, {
+      cwd: repositoryPath,
+      shell: true,
+      stdio: 'pipe',
+      encoding: 'utf-8',
+    });
+
+    const output = result.stdout + result.stderr;
+    
+    // Parse test results
+    const testResults = parseTestResults(output, framework);
+
+    return {
+      success: result.status === 0,
+      message: output,
+      framework,
+      exitCode: result.status,
+      ...testResults,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: error.message,
+      framework,
+      error: String(error),
+    };
+  }
+}
+
+/**
+ * Parse test results from output
+ */
+function parseTestResults(output, framework) {
+  const results = {
+    total: 0,
+    passed: 0,
+    failed: 0,
+    skipped: 0,
+    duration: 0,
+  };
+
+  switch (framework) {
+    case 'jest':
+    case 'vitest':
+      const jestMatch = output.match(/Tests:\s+(\d+)\s+passed,\s+(\d+)\s+failed/);
+      if (jestMatch) {
+        results.passed = parseInt(jestMatch[1], 10);
+        results.failed = parseInt(jestMatch[2], 10);
+        results.total = results.passed + results.failed;
+      }
+      const jestTime = output.match(/in\s+(\d+\.?\d*)\s*s/);
+      if (jestTime) {
+        results.duration = parseFloat(jestTime[1]);
+      }
+      break;
+
+    case 'pytest':
+      const pytestMatch = output.match(/(\d+)\s+passed,\s+(\d+)\s+failed/);
+      if (pytestMatch) {
+        results.passed = parseInt(pytestMatch[1], 10);
+        results.failed = parseInt(pytestMatch[2], 10);
+        results.total = results.passed + results.failed;
+      }
+      const pytestTime = output.match(/in\s+(\d+\.?\d*)s/);
+      if (pytestTime) {
+        results.duration = parseFloat(pytestTime[1]);
+      }
+      break;
+
+    case 'mocha':
+      const mochaMatch = output.match(/passing:\s+(\d+)/);
+      if (mochaMatch) {
+        results.passed = parseInt(mochaMatch[1], 10);
+      }
+      const mochaFailed = output.match(/failing:\s+(\d+)/);
+      if (mochaFailed) {
+        results.failed = parseInt(mochaFailed[1], 10);
+      }
+      results.total = results.passed + results.failed;
+      break;
+
+    default:
+      break;
+  }
+
+  return results;
+}
 
 export function getAgentDefinitions() {
   return listAgents();

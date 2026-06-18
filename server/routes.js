@@ -10,14 +10,19 @@ import {
   getArtifactsForExecution,
   getEvents,
   getPipelineDefinitions,
-
-
-
   getAgentDefinitions,
   getPullRequestForExecution,
   ensureTaskWorkspace,
   getAutoSelection,
+  getNotifications,
+  getNotificationById,
+  markNotificationAsRead,
+  detectTestFramework,
+  getTestCommand,
+  runTests,
 } from './engine.js';
+import db from './db.js';
+import { workspaceRoot } from './engine.js';
 import { runDevinStage } from './agents/devin.js';
 import { getOrphanRecoveryStats, recoverOrphanedTasks } from './orphan-recovery.js';
 import { getPRPollingStats, pollAllPRs, startPRPolling, stopPRPolling } from './pr-poller.js';
@@ -38,6 +43,33 @@ router.delete('/tasks/:id', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
+});
+
+router.get('/tasks/:id/execution', (req, res) => {
+  const execution = getTaskExecution(req.params.id);
+  if (!execution) {
+    return res.status(404).json({ error: 'Execution not found' });
+  }
+  res.json(execution);
+});
+
+router.get('/executions/:id/stages', (req, res) => {
+  const stages = getStagesForExecution(req.params.id);
+  res.json(stages);
+});
+
+router.get('/pull-requests', (req, res) => {
+  const prs = db.prepare('SELECT * FROM pull_requests ORDER BY created_at DESC').all();
+  res.json(prs);
+});
+
+router.get('/tasks/:id/pull-requests', (req, res) => {
+  const execution = getTaskExecution(req.params.id);
+  if (!execution) {
+    return res.status(404).json({ error: 'Execution not found' });
+  }
+  const prs = db.prepare('SELECT * FROM pull_requests WHERE execution_id = ? ORDER BY created_at DESC').all(execution.id);
+  res.json(prs);
 });
 
 // NEW: Auto-select pipeline and agent for a task (preview)
@@ -264,6 +296,67 @@ router.post('/admin/pr-polling/start', (req, res) => {
 router.post('/admin/pr-polling/stop', (req, res) => {
   stopPRPolling();
   res.json({ success: true, message: 'PR polling stopped' });
+});
+
+// Notifications endpoints
+router.get('/notifications', (req, res) => {
+  const { userId } = req.query;
+  const notifications = getNotifications(userId);
+  res.json(notifications);
+});
+
+router.get('/notifications/:id', (req, res) => {
+  const notification = getNotificationById(req.params.id);
+  if (!notification) {
+    return res.status(404).json({ error: 'Notification not found' });
+  }
+  res.json(notification);
+});
+
+router.post('/notifications/:id/read', (req, res) => {
+  markNotificationAsRead(req.params.id);
+  res.json({ success: true });
+});
+
+router.post('/notifications/read-all', (req, res) => {
+  const { userId } = req.body;
+  db.prepare('UPDATE notifications SET read = 1 WHERE user_id = ? OR user_id IS NULL').run(userId || null);
+  res.json({ success: true });
+});
+
+// Test execution endpoints
+router.post('/tasks/:id/run-tests', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const task = getTaskById(id);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const repositoryPath = path.join(workspaceRoot, id);
+    const results = await runTests(id, repositoryPath);
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+router.get('/tasks/:id/test-framework', (req, res) => {
+  const { id } = req.params;
+  try {
+    const task = getTaskById(id);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const repositoryPath = path.join(workspaceRoot, id);
+    const framework = detectTestFramework(repositoryPath);
+    const command = framework ? getTestCommand(framework) : null;
+    
+    res.json({ framework, command });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
 });
 
 export default router;
