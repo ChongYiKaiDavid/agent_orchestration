@@ -12,7 +12,7 @@ import PipelinesPage from './pages/Pipelines.tsx';
 import TaskDetail from './pages/TaskDetails.tsx';
 
 function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 900);
   const [selectedSection, setSelectedSection] = useState('dashboard');
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
 
