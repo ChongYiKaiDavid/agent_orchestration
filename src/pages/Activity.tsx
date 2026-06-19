@@ -39,7 +39,8 @@ const ActivityPage: React.FC = () => {
 
   return (
     <div className="activity-page">
-      <h1 className="activity-title">Activity</h1>
+      <h1 className="activity-title" aria-label="Activity">Activity</h1>
+
 
       <div className="activity-toolbar">
         <input
@@ -95,7 +96,8 @@ const ActivityPage: React.FC = () => {
             ))
           ) : (
             <div className="activity-empty-state">
-              <h2 className="activity-empty-title">No activity found</h2>
+              <h2 className="activity-empty-title" aria-label="No activity found">No activity found</h2>
+
               <p className="activity-empty-message">Activity events will appear here as tasks are processed.</p>
             </div>
           )}

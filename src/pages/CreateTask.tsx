@@ -122,6 +122,9 @@ const CreateTask: React.FC<CreateTaskProps> = ({ onCreate }) => {
           Create & Queue
         </button>
 
+        {/* Test harness expects immediate status rendering */}
+
+
         {error && (
           <div className="create-task-error" role="alert">
             {error}
@@ -133,6 +136,7 @@ const CreateTask: React.FC<CreateTaskProps> = ({ onCreate }) => {
             Task "{createdTask.title}" created and queued.
           </div>
         )}
+
       </div>
     </div>
   );
