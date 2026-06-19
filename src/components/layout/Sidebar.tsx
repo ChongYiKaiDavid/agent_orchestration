@@ -35,8 +35,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, selected, on
           <div className="brand-badge">AO</div>
           <div className="brand-copy">
             <div className="brand-title">Frontend</div>
-            <div className="brand-subtitle">Sample Dashboard</div>
+            <div className="brand-subtitle">Sample</div>
           </div>
+
         </div>
 
         <nav className="nav" role="navigation" aria-label="Main navigation">

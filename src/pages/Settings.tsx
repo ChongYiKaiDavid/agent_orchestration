@@ -44,11 +44,13 @@ const SettingsPage: React.FC = () => {
               className={`settings-chevron ${expandedSections.project ? 'open' : ''}`}
             />
             <span>Project</span>
+
           </button>
           {expandedSections.project && (
             <div className="settings-section-content">
               <div className="settings-field">
-                <label className="settings-label">Project Name</label>
+                <label className="settings-label" aria-label="Project Name">Project Name</label>
+
                 <input
                   type="text"
                   className="settings-input"

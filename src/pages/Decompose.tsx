@@ -66,10 +66,12 @@ const Decompose: React.FC = () => {
         {success && <div className="decompose-success" role="status">{success}</div>}
       </div>
       <div className="decompose-drafts">
-        <h3 className="decompose-drafts-title">Drafts</h3>
+        <h3 className="decompose-drafts-title" aria-label="Drafts">Drafts</h3>
+
         <div style={{ display: 'grid', gap: 12 }}>
           {drafts.length === 0 && (
             <div className="card">No drafts yet. Enter an epic description and click Decompose.</div>
+
           )}
           {drafts.map((d) => (
             <div key={d.id} className="card">
