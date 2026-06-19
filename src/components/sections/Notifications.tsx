@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 
 interface Notification {
@@ -18,6 +18,8 @@ export default function Notifications() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showPanel, setShowPanel] = useState(false);
   const [allNotifications, setAllNotifications] = useState<Notification[]>([]);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     // Session-based: don't fetch existing notifications, only show new ones during this session
@@ -47,6 +49,24 @@ export default function Notifications() {
       socket.disconnect();
     };
   }, []);
+
+  // Close panel when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(event.target as Node) &&
+          buttonRef.current && !buttonRef.current.contains(event.target as Node)) {
+        setShowPanel(false);
+      }
+    };
+
+    if (showPanel) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showPanel]);
 
   const dismissToast = (id: string) => {
     setToasts(prev => prev.filter(toast => toast.id !== id));
@@ -104,6 +124,7 @@ export default function Notifications() {
       {/* Notification Bell */}
       <div className="relative">
         <button
+          ref={buttonRef}
           onClick={() => {
             setShowPanel(!showPanel);
           }}
@@ -120,7 +141,7 @@ export default function Notifications() {
 
         {/* Notification Panel */}
         {showPanel && (
-          <div className="absolute right-0 top-12 w-96 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl overflow-hidden z-50">
+          <div ref={panelRef} className="fixed right-4 top-16 w-96 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl overflow-hidden z-50">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
               <h3 className="font-semibold text-white">Notifications</h3>
               {unreadCount > 0 && (
