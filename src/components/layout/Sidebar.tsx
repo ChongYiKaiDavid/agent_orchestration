@@ -1,4 +1,5 @@
 import React from 'react';
+import Notifications from '../sections/Notifications';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -16,13 +17,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, selected, on
     { id: 'agents', label: 'Agents', icon: '◯' },
     { id: 'settings', label: 'Settings', icon: '⚙️' },
     { id: 'pipelines', label: 'Pipelines', icon: '≈' },
-    { id: 'terminal', label: 'Terminal', icon: '💻' },
   ];
 
   const handleSelect = (id: string) => {
     if (onSelect) onSelect(id);
-    // close sidebar on mobile only if the menu is open
-    if (isOpen && onToggle) onToggle();
   };
 
   return (
@@ -54,6 +52,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, selected, on
             </div>
           ))}
         </nav>
+        
+        {/* Notifications in sidebar */}
+        <div className="sidebar-notifications">
+          <Notifications />
+        </div>
       </aside>
     </>
   );

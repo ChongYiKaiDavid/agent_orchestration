@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
 import { spawn, spawnSync } from 'child_process';
+import os from 'os';
 import db from './db.js';
 import { getPipeline, listPipelines, getPipelineSync, listPipelinesSync } from './pipelines.js';
 import { runDevinStage, buildStagePrompt as buildDevinStagePrompt } from './agents/devin.js';
@@ -15,6 +16,49 @@ import io from 'socket.io-client';
 
 export const workspaceRoot = path.resolve(process.cwd(), process.env.TEST_WORKSPACE_ROOT || 'server/workspaces');
 
+// Track which tasks have spawned terminals to avoid duplicates
+const _spawnedTerminals = new Set();
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Terminal window spawner — opens a new terminal with log viewer for agent output
+// ──────────────────────────────────────────────────────────────────────────────
+
+function spawnAgentTerminal(taskId) {
+  // Only spawn once per task
+  if (_spawnedTerminals.has(taskId)) {
+    return;
+  }
+  _spawnedTerminals.add(taskId);
+
+  const platform = os.platform();
+  // Tail the worker log file instead of using Socket.IO
+  const logPath = path.join(process.cwd(), 'server', 'workspaces', taskId, 'worker.log');
+  let command, args;
+
+  switch (platform) {
+    case 'darwin':
+      command = 'osascript';
+      args = ['-e', `tell application "Terminal" to do script "tail -f ${logPath}"`];
+      break;
+    case 'win32':
+      command = 'cmd';
+      args = ['/c', 'start', 'cmd', '/k', `powershell -Command "Get-Content ${logPath} -Wait -Tail 10"`];
+      break;
+    default: // linux
+      const terminals = ['gnome-terminal', 'xterm', 'konsole', 'xfce4-terminal'];
+      command = terminals[0];
+      args = ['--', 'tail', '-f', logPath];
+      break;
+  }
+
+  try {
+    spawn(command, args, { detached: true, stdio: 'ignore' });
+    console.log(`[engine] 🖥️  Opened terminal window for task ${taskId} to view worker logs`);
+  } catch (error) {
+    console.error(`[engine] Failed to open terminal window:`, error.message);
+  }
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Real-time log streamer — connects to Flask-SocketIO and forwards agent output
 // ──────────────────────────────────────────────────────────────────────────────
@@ -25,8 +69,10 @@ let _socketInstanceCount = 0;
 
 function getLogSocket() {
   if (_logSocket) {
+    console.log(`[getLogSocket] socket exists, connected: ${_logSocket.connected}`);
     if (_logSocket.connected) return _logSocket;
     // Socket exists but disconnected — call connect() to reconnect it
+    console.log('[getLogSocket] reconnecting...');
     _logSocket.connect();
     return _logSocket;
   }
@@ -34,10 +80,13 @@ function getLogSocket() {
   // If FLASK_SOCKET_URL isn't explicitly provided, skip socket connection entirely.
   // This prevents worker execution from being spammed/having noisy connect attempts.
   const flaskUrl = process.env.FLASK_SOCKET_URL;
+  console.log(`[getLogSocket] FLASK_SOCKET_URL: ${flaskUrl}`);
   if (!flaskUrl) {
+    console.log('[getLogSocket] no FLASK_SOCKET_URL, returning null');
     return null;
   }
 
+  console.log('[getLogSocket] creating new socket...');
   _logSocket = io(flaskUrl, {
     transports: [process.env.FLASK_SOCKET_TRANSPORT || 'websocket'],
     autoConnect: false,
@@ -100,11 +149,15 @@ async function streamLog(taskId, stageId, type, data, end = false) {
   try {
     // Don't block waiting for socket - just skip if not connected
     const socket = getLogSocket();
+    console.log(`[streamLog] socket: ${socket ? socket.connected : 'null'}`);
     if (!socket || !socket.connected) {
       // Silently skip log streaming if socket not available
+      console.log('[streamLog] skipping - socket not connected');
       return;
     }
+    console.log(`[streamLog] emitting agent-log for task ${taskId}`);
     socket.emit('agent-log', { taskId, stageId, type, data, end });
+    console.log(`[streamLog] emitted successfully`);
   } catch (err) {
     console.error('[log-streamer] Failed to emit log:', err.message);
   }
@@ -588,7 +641,9 @@ export async function processTask(task) {
     message: `Task execution started for pipeline '${pipeline.name}'.`,
   });
 
+  console.log('[processTask] about to stream acceptance log');
   await streamLog(task.id, 'init', 'system', `\x1b[1;35m>>> Task accepted — pipeline: ${pipeline.name}\x1b[0m\r\n`);
+  console.log('[processTask] acceptance log streamed');
 
   let previousOutputs = [];
   let finalVerdict = null;
@@ -623,6 +678,9 @@ export async function processTask(task) {
     });
 
     await streamLog(task.id, stage.id, 'system', `\x1b[1;34m>>> Starting stage: ${stage.name}\x1b[0m`);
+
+    // Spawn terminal window to view agent logs in real-time
+    spawnAgentTerminal(task.id);
 
     const stageLogId = stage.id;
     // Use the correct agent based on stage configuration

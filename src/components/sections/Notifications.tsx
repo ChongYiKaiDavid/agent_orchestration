@@ -20,8 +20,7 @@ export default function Notifications() {
   const [allNotifications, setAllNotifications] = useState<Notification[]>([]);
 
   useEffect(() => {
-    // Fetch existing notifications on mount
-    fetchNotifications();
+    // Session-based: don't fetch existing notifications, only show new ones during this session
 
     // Connect to Flask Socket.IO
     const flaskUrl = import.meta.env.VITE_FLASK_SOCKET_URL || 'http://localhost:5002';
@@ -49,46 +48,21 @@ export default function Notifications() {
     };
   }, []);
 
-  const fetchNotifications = async () => {
-    try {
-      const response = await fetch('http://localhost:5174/api/notifications');
-      const data = await response.json();
-      setAllNotifications(Array.isArray(data) ? data : []);
-      setUnreadCount(Array.isArray(data) ? data.filter((n: Notification) => n.read === 0).length : 0);
-    } catch (error) {
-      console.error('Failed to fetch notifications:', error);
-    }
-  };
-
   const dismissToast = (id: string) => {
     setToasts(prev => prev.filter(toast => toast.id !== id));
   };
 
-  const markAsRead = async (id: string) => {
-    try {
-      await fetch(`http://localhost:5174/api/notifications/${id}/read`, {
-        method: 'POST'
-      });
-      setAllNotifications(prev => prev.map(n => n.id === id ? { ...n, read: 1 } : n));
-      setUnreadCount(prev => Math.max(0, prev - 1));
-    } catch (error) {
-      console.error('Failed to mark notification as read:', error);
-    }
+  const markAsRead = (id: string) => {
+    // Session-based: just update local state, no API call
+    setAllNotifications(prev => prev.map(n => n.id === id ? { ...n, read: 1 } : n));
+    setUnreadCount(prev => Math.max(0, prev - 1));
     dismissToast(id);
   };
 
-  const markAllAsRead = async () => {
-    try {
-      await fetch('http://localhost:5174/api/notifications/read-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: null })
-      });
-      setAllNotifications(prev => prev.map(n => ({ ...n, read: 1 })));
-      setUnreadCount(0);
-    } catch (error) {
-      console.error('Failed to mark all as read:', error);
-    }
+  const markAllAsRead = () => {
+    // Session-based: just update local state, no API call
+    setAllNotifications(prev => prev.map(n => ({ ...n, read: 1 })));
+    setUnreadCount(0);
   };
 
   const getNotificationIcon = (type: string) => {
@@ -132,7 +106,6 @@ export default function Notifications() {
         <button
           onClick={() => {
             setShowPanel(!showPanel);
-            if (!showPanel) fetchNotifications();
           }}
           className="relative p-2 text-gray-400 hover:text-white transition-colors"
           title="Notifications"

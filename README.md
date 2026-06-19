@@ -17,8 +17,8 @@ The system consists of four main components:
 - 📋 **Configurable Pipelines** - Define custom workflows (plan → code → review, code-only, etc.)
 - 🔗 **Git Integration** - Clone repositories, make real code changes, create PRs on GitHub/Bitbucket
 - 🎫 **Jira Integration** - Link tasks to Jira tickets with automatic commit message formatting
-- 📡 **Real-time Logs** - Live terminal streaming via Socket.IO
-- 🔔 **Real-time Notifications** - WebSocket-based notifications for task lifecycle events
+- 📡 **Real-time Logs** - Live terminal streaming via Socket.IO and native terminal window spawning
+- 🔔 **Real-time Notifications** - WebSocket-based notifications for task lifecycle events (session-based)
 - 📊 **Pipeline Visualizer** - Visual representation of pipeline stages with real-time status updates
 - 🔀 **PR Tracking** - Monitor pull request status with automatic polling and status updates
 - 🧪 **Automated Test Execution** - Detect test frameworks and run tests with result visualization
@@ -161,6 +161,7 @@ FLASK_SOCKET_URL=http://localhost:5002
 ### Backend
 - `npm run server` - Start Express API server (port 5174)
 - `npm run worker` - Start background worker
+- `npm run cli` - Run CLI tool for task management
 
 ## Database Schema
 
@@ -216,9 +217,16 @@ The Jira ticket number is automatically included in commit messages and PR title
 The system provides WebSocket-based notifications for task lifecycle events:
 - Task created, started, completed, failed
 - Pull request created
-- Notifications are displayed in the header with unread count
+- Notifications are displayed in the sidebar with unread count
 - Mark notifications as read individually or all at once
-- Notifications are persisted in the database
+- Notifications are session-based (not persisted across browser refreshes)
+
+### Terminal Window Spawning
+The worker now spawns native terminal windows for real-time log viewing:
+- Automatically opens a new terminal window when a task starts processing
+- Uses platform-specific terminal emulators (Terminal.app on macOS, cmd on Windows, gnome-terminal on Linux)
+- Tails the worker log file in real-time for each task
+- One terminal per task to avoid log mixing
 
 ### Pipeline Visualizer
 Visual representation of pipeline execution with real-time status updates:
@@ -251,9 +259,9 @@ Edit `src/index.css` to customize colors:
 - Accent colors: Purple `#9d7fff`, Blue `#6b9eff`, Green `#4ade80`, Yellow `#fbbf24`, Red `#ff6b6b`
 
 ### Components
-- **Sidebar** - Navigation menu with responsive mobile support
-- **Header** - System status metrics with notification bell
-- **Notifications** - Real-time notification panel with unread count
+- **Sidebar** - Navigation menu with responsive mobile support and notifications panel
+- **Header** - System status metrics
+- **Notifications** - Real-time notification panel with unread count (located in sidebar)
 - **PipelineVisualizer** - Visual pipeline stage progress with status indicators
 - **PRTracking** - Pull request status monitoring with polling
 - **TestResults** - Automated test execution with results visualization
@@ -287,6 +295,17 @@ Edit `src/index.css` to customize colors:
 - Ensure the worker process is running (`npm run worker`)
 - Check that the backend server is running (`npm run server`)
 - Verify the database has queued tasks
+
+### Terminal window not opening
+- On macOS: Ensure Terminal.app is allowed to run scripts
+- On Linux: Ensure gnome-terminal or xterm is installed
+- On Windows: Ensure cmd.exe can spawn new windows
+- Check that the worker has permission to create directories in `server/workspaces/`
+
+### No logs in worker terminal window
+- Verify the log file exists at `server/workspaces/{taskId}/worker.log`
+- Check that the worker process is writing to the log file
+- Ensure the tail command is supported on your platform
 
 ### No logs in browser terminal
 - Ensure Flask Socket.IO server is running on port 5002

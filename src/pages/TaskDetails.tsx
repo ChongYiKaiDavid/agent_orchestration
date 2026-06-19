@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { Terminal } from '../components/terminal/Terminal';
 import PipelineVisualizer from '../components/sections/PipelineVisualizer';
 import PRTracking from '../components/sections/PRTracking';
 import TestResults from '../components/sections/TestResults';
@@ -158,16 +157,6 @@ const TaskDetails: React.FC<TaskDetailsProps> = ({ taskId, onTaskDeleted }) => {
       <div className="grid grid-cols-2 gap-6">
         <PRTracking taskId={taskId} />
         <TestResults taskId={taskId} />
-      </div>
-
-      {/* Terminal */}
-      <div className="bg-gray-900 border border-gray-700 rounded-lg overflow-hidden">
-        <div className="p-4 border-b border-gray-700">
-          <h2 className="text-lg font-semibold text-white">Terminal Output</h2>
-        </div>
-        <div style={{ height: '500px' }}>
-          <Terminal taskId={taskId} mode="agent" />
-        </div>
       </div>
     </div>
   );

@@ -1,5 +1,4 @@
 import React from 'react';
-import Notifications from '../sections/Notifications';
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -16,7 +15,6 @@ export const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       >
         ☰
       </button>
-      <Notifications />
     </header>
   );
 };
