@@ -3,11 +3,21 @@ import { createTask, listTasks, getTaskById, getTaskExecution, getStagesForExecu
 import { program } from 'commander';
 import { spawn } from 'child_process';
 import os from 'os';
+import path from 'path';
+import { loadEnv } from './load_env.js';
 
 program
   .name('agent-orchestration')
   .description('CLI for AI agent orchestration system')
   .version('1.0.0');
+
+// Ensure env is loaded for CLI usage (other devices / CI-friendly).
+// You can override with: --env-file <path> or ENV_FILE env var.
+const resolvedEnvFile = process.env.ENV_FILE
+  ? path.resolve(process.env.ENV_FILE)
+  : path.resolve(process.cwd(), '.env.agent_orchestration');
+loadEnv(resolvedEnvFile);
+
 
 // Detect OS
 function getPlatform() {
@@ -20,14 +30,16 @@ function getPlatform() {
 // Spawn terminal window with log viewer
 function spawnLogViewer(taskId) {
   const platform = getPlatform();
-  const scriptPath = './cli-log-viewer.js';
+  const scriptPath = path.resolve(__dirname, 'cli-log-viewer.js');
   let command, args;
+
 
   switch (platform) {
     case 'macos':
       command = 'osascript';
-      args = ['-e', `tell application "Terminal" to do script "node ${process.cwd()}/${scriptPath} ${taskId}"`];
+      args = ['-e', `tell application "Terminal" to do script "node ${scriptPath} ${taskId}"`];
       break;
+
     case 'windows':
       command = 'cmd';
       args = ['/c', 'start', 'cmd', '/k', `node ${scriptPath} ${taskId}`];
@@ -58,7 +70,17 @@ function spawnLogViewer(taskId) {
 
 // Create task command
 program
+  .option('--env-file <path>', 'Path to .env file (defaults to .env.agent_orchestration)')
+  .action((opts) => {
+    if (opts?.envFile) {
+      loadEnv(path.resolve(opts.envFile));
+    }
+  });
+
+program
   .command('create')
+
+
   .description('Create a new task')
   .requiredOption('-t, --title <title>', 'Task title')
   .option('-d, --description <description>', 'Task description')
