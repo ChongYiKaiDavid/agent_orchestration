@@ -209,6 +209,7 @@ Format example:
 
 router.post('/tasks', express.json(), (req, res) => {
   const payload = req.body;
+  console.log('[POST /tasks] Received payload:', JSON.stringify(payload, null, 2));
   if (!payload || !payload.title) {
     return res.status(400).json({ error: 'Missing required field: title' });
   }
@@ -218,6 +219,16 @@ router.post('/tasks', express.json(), (req, res) => {
     payload.pipeline = 'auto';
   }
 
+  // Handle jira_ticket field for commit message inclusion
+  if (payload.key && !payload.jira_ticket) {
+    payload.jira_ticket = payload.key;
+  }
+  // Handle jiraTicket field from frontend (camelCase to snake_case)
+  if (payload.jiraTicket && !payload.jira_ticket) {
+    payload.jira_ticket = payload.jiraTicket;
+  }
+
+  console.log('[POST /tasks] After processing, jira_ticket:', payload.jira_ticket);
   const task = createTask(payload);
   res.status(201).json(task);
 });

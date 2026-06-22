@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { fetchTasks, fetchTaskExecutions, deleteTask } from '../api';
+import { fetchTasks, fetchTaskExecutions, deleteTask, fetchPipeline } from '../api';
+import PipelineVisualization from '../components/PipelineVisualization';
 
 
 interface DashboardPageProps {
@@ -15,11 +16,12 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
   const [tasks, setTasks] = useState<any[]>([]);
   const [selectedTask, setSelectedTask] = useState<any | null>(null);
   const [executionDetails, setExecutionDetails] = useState<any | null>(null);
+  const [pipelineDefinition, setPipelineDefinition] = useState<any | null>(null);
 
   const lifecycleStages = [
     { id: 'plan', label: 'Planning', color: 'var(--accent-blue)' },
     { id: 'code', label: 'Coding', color: 'var(--accent-green)' },
-    { id: 'review', label: 'Review Code', color: 'var(--accent-yellow)' },
+    { id: 'review', label: 'Reviewing', color: 'var(--accent-yellow)' },
     { id: 'pr', label: 'Create PR', color: 'var(--accent-purple)' },
     { id: 'feedback', label: 'Review feedback', color: 'var(--accent-red)' },
     { id: 'merge', label: 'Merge PR', color: 'var(--accent-green)' },
@@ -41,6 +43,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
   useEffect(() => {
     if (!selectedTask) {
       setExecutionDetails(null);
+      setPipelineDefinition(null);
       return;
     }
 
@@ -50,7 +53,16 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
         .catch(() => setExecutionDetails(null));
     };
 
+    const loadPipelineDefinition = () => {
+      if (selectedTask.pipeline_id) {
+        fetchPipeline(selectedTask.pipeline_id)
+          .then(setPipelineDefinition)
+          .catch(() => setPipelineDefinition(null));
+      }
+    };
+
     loadExecutionDetails();
+    loadPipelineDefinition();
     const interval = setInterval(loadExecutionDetails, 3000);
     return () => clearInterval(interval);
   }, [selectedTask]);
@@ -265,6 +277,25 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
             <div>Status: {selectedTask.status}</div>
             <div>Pipeline: {selectedTask.pipeline_id}</div>
           </div>
+
+          {pipelineDefinition && (
+            <div className="dashboard-pipeline-visualization">
+              <h3>Pipeline Visualization</h3>
+              <PipelineVisualization
+                pipeline={pipelineDefinition}
+                executionStatus={
+                  executionDetails?.stageExecutions?.reduce((acc: any, stage: any) => {
+                    acc[stage.stage_name] = {
+                      status: stage.status,
+                      started_at: stage.started_at,
+                      completed_at: stage.completed_at,
+                    };
+                    return acc;
+                  }, {}) || {}
+                }
+              />
+            </div>
+          )}
 
           {executionDetails && (
             <div className="dashboard-execution-details">

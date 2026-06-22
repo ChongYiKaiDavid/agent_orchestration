@@ -881,7 +881,7 @@ export async function processTask(task) {
                     }
 
                     const prApiUrl = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repoName}/pullrequests`;
-                    const prTitle = task.title || `Agent update: ${branchName}`;
+                    const prTitle = task.jira_ticket ? `${task.jira_ticket} ${task.title}` : (task.title || `Agent update: ${branchName}`);
                     const prDesc = `Created by AI agent orchestration for task: ${task.id}\n\nTask: ${task.title}\nBranch: ${branchName}`;
                     const prResp = await fetch(prApiUrl, {
                       method: 'POST',

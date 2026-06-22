@@ -5,6 +5,7 @@ export type TaskCreatePayload = {
   repository?: string;
   targetBranch?: string;
   priority?: string;
+  jiraTicket?: string;
 };
 
 const defaultHeaders = {

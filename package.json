@@ -31,6 +31,7 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.17.0",
     "react-xtermjs": "^1.0.12",
+    "reactflow": "^11.11.4",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
     "xterm": "^5.3.0",
