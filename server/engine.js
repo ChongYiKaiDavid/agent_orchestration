@@ -582,6 +582,7 @@ export async function processTask(task) {
     console.log('[processTask] autoSelect done:', auto.pipelineId);
   }
 
+
   recordActivity({
     taskId: task.id,
     event_type: 'agent_assigned',
@@ -592,6 +593,7 @@ export async function processTask(task) {
   const pipeline = await getPipeline(auto.pipelineId);
   console.log('[processTask] pipeline:', pipeline ? pipeline.name : 'NOT FOUND');
   if (!pipeline) {
+
     recordActivity({
       taskId: task.id,
       event_type: 'failed',
@@ -600,9 +602,33 @@ export async function processTask(task) {
     db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run('failed', now(), task.id);
     return;
   }
+  // Fail fast if pipeline expects a coding stage (repo modifications) but task has no repository.
+  const pipelineStageIds = Array.isArray(pipeline?.stages) ? pipeline.stages.map((s) => s.id) : [];
+  const requiresRepo = pipelineStageIds.includes('coding');
+  if (requiresRepo && !task.repository) {
+    const message = `Missing repository: pipeline '${pipeline.id || auto.pipelineId}' contains a coding stage but task.repository was not provided.`;
+    recordActivity({
+      taskId: task.id,
+      event_type: 'failed',
+      message,
+      details: JSON.stringify({ pipelineStageIds, requiresRepo, repository: task.repository }),
+    });
+    db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run('failed', now(), task.id);
+    createNotification({
+      userId: null,
+      taskId: task.id,
+      type: 'task_failed',
+      title: 'Task Failed',
+      message,
+      data: { status: 'failed', pipelineId: pipeline.id || auto.pipelineId },
+    });
+    return;
+  }
+
   const taskWorkspace = await ensureTaskWorkspace(task.id);
   console.log('[processTask] workspace:', taskWorkspace);
   let repositoryPath = null;
+
   if (task.repository) {
     console.log('[processTask] cloning repo:', task.repository);
     if (!looksLikeGitRepo(task.repository)) {

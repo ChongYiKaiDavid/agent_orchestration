@@ -7,9 +7,16 @@ import path from 'path';
 
 async function runWorker() {
   console.log('Worker loop started.');
-  
+
+  if (!process.env.FLASK_SOCKET_URL) {
+    console.warn('[worker] WARNING: FLASK_SOCKET_URL is not set. Real-time log streaming to UI/Socket.IO will be disabled.');
+  } else {
+    console.log('[worker] FLASK_SOCKET_URL:', process.env.FLASK_SOCKET_URL);
+  }
+
   // Start orphan recovery watchdog if enabled
   let watchdogInterval = null;
+
   if (process.env.ENABLE_ORPHAN_RECOVERY === 'true') {
     watchdogInterval = startOrphanRecoveryWatchdog();
     console.log('[worker] Orphan recovery watchdog enabled');

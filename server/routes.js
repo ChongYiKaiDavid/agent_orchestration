@@ -196,9 +196,13 @@ Format example:
         description: subtask.description || '',
         pipeline: 'auto',
         priority: 'medium',
+        // Preserve repo context if it was provided with the epic request
+        repository: req.body?.repository || null,
+        targetBranch: req.body?.targetBranch || null,
       });
       createdTasks.push(task);
     }
+
 
     res.json(createdTasks);
   } catch (err) {

@@ -45,4 +45,3 @@ if (process.env.START_WORKER === '1') {
 if (process.env.START_WORKER === '2') {
   // intentionally no-op
 }
-
