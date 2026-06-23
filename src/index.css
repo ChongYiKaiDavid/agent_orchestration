@@ -347,6 +347,12 @@ button.nav-item{background:transparent;border:0;outline:0;cursor:pointer;width:1
 .header-menu-button{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.02);color:var(--text);font-size:20px;cursor:pointer}
 .header-title{font-size:18px;font-weight:800;color:var(--text)}
 
+/* Decompose messages (was previously unstyled) */
+.decompose-error{margin-top:14px;padding:14px 16px;border-radius:10px;background:rgba(255,107,107,0.10);border:1px solid rgba(255,107,107,0.22);color:var(--accent-red);font-weight:700}
+.decompose-success{margin-top:14px;padding:14px 16px;border-radius:10px;background:rgba(56,189,248,0.10);border:1px solid rgba(56,189,248,0.22);color:var(--accent-blue);font-weight:700}
+
+.dashboard-delete-btn{background:transparent;border:0;color:var(--accent-red);font-size:48px;font-weight:800;cursor:pointer;line-height:1;padding:10px;transition:transform 0.2s, filter 0.15s ease;}
+.dashboard-delete-btn:hover{filter:brightness(1.05)}
 
 /* Pipelines Page */
 .pipelines-page{display:flex;flex-direction:column;height:100%;max-width:1600px;margin:0 auto;padding:20px}
@@ -426,4 +432,7 @@ button.nav-item{background:transparent;border:0;outline:0;cursor:pointer;width:1
   .activity-page{max-width:none}
   .activity-toolbar{gap:12px}
 }
+
+
+
 

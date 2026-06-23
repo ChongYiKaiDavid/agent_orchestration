@@ -237,22 +237,14 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
             <button
               type="button"
               title="Delete Task"
+              className="dashboard-delete-btn"
               style={{
                 position: 'absolute',
                 top: '-10px',
-                right: '0',
-                background: 'transparent',
-                border: 'none',
-                color: 'red',
-                fontSize: '48px',
-                fontWeight: 'bold',
-                cursor: 'pointer',
-                lineHeight: '1',
-                padding: '10px',
-                transition: 'transform 0.2s'
+                right: '0'
               }}
-              onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
-              onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+              onMouseEnter={(e) => (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.1)'}
+              onMouseLeave={(e) => (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'}
               onClick={async () => {
                 if (!window.confirm(`Delete task ${selectedTask.id}?`)) return;
                 try {

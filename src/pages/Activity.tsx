@@ -13,10 +13,18 @@ const ActivityPage: React.FC = () => {
   ];
 
   const eventColors: Record<string, string> = {
-    created: '#3b82f6', queued: '#8b5cf6', stage_started: '#f59e0b',
-    stage_completed: '#10b981', verdict: '#6366f1', pipeline_complete: '#8b5cf6',
-    failed: '#ef4444', escalated: '#f97316', retry: '#eab308', stopped: '#6b7280',
-    reset: '#ec4899', deleted: '#dc2626',
+    created: 'rgba(107,158,255,0.25)',
+    queued: 'rgba(157,127,255,0.25)',
+    stage_started: 'rgba(251,191,36,0.25)',
+    stage_completed: 'rgba(74,222,128,0.25)',
+    verdict: 'rgba(157,127,255,0.25)',
+    pipeline_complete: 'rgba(157,127,255,0.25)',
+    failed: 'rgba(255,107,107,0.25)',
+    escalated: 'rgba(249,115,22,0.25)',
+    retry: 'rgba(251,191,36,0.25)',
+    stopped: 'rgba(156,163,175,0.20)',
+    reset: 'rgba(236,72,153,0.25)',
+    deleted: 'rgba(255,107,107,0.25)',
   };
 
   const eventLevels: Record<string, 'info' | 'warning' | 'error'> = {
