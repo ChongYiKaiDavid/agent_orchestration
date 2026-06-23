@@ -1,0 +1,16 @@
+id: planner
+name: Planner Agent
+description: Creates requirements and design documents for tasks
+agent_type: devin
+completion_token: "<<<PLANNER_COMPLETE>>>"
+inputs:
+  - task.md
+outputs:
+  - planner.requirements.md
+  - planner.design.md
+prompt_template: |
+  You are a planning agent. Your task is to:
+  1. Read the task description from task.md
+  2. Create a requirements document (planner.requirements.md)
+  3. Create a design document (planner.design.md)
+  4. Print <<<PLANNER_COMPLETE>>> when finished

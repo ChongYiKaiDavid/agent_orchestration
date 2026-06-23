@@ -9,7 +9,7 @@ import { runDevinStage, buildStagePrompt as buildDevinStagePrompt } from './agen
 import { runGeminiStage, buildStagePrompt as buildGeminiStagePrompt } from './agents/gemini.js';
 import { runOllamaStage, buildStagePrompt as buildOllamaStagePrompt } from './agents/ollama.js';
 import { listAgents } from './agents.js';
-import { autoSelectPipelineAndAgent } from './auto-selector.js';
+import { autoSelectPipelineAndAgent, autoSelectAgentForStage } from './auto-selector.js';
 import { attemptRebaseWithResolution } from './conflict-resolver.js';
 import io from 'socket.io-client';
 
@@ -69,31 +69,25 @@ let _socketInstanceCount = 0;
 
 function getLogSocket() {
   if (_logSocket) {
-    console.log(`[getLogSocket] socket exists, connected: ${_logSocket.connected}`);
     if (_logSocket.connected) return _logSocket;
-    // Socket exists but disconnected — call connect() to reconnect it
-    console.log('[getLogSocket] reconnecting...');
+    // Socket exists but disconnected — try reconnect silently.
     _logSocket.connect();
     return _logSocket;
   }
 
   // If FLASK_SOCKET_URL isn't explicitly provided, skip socket connection entirely.
-  // This prevents worker execution from being spammed/having noisy connect attempts.
+  // This prevents worker execution from being spammed with connect attempts.
   const flaskUrl = process.env.FLASK_SOCKET_URL;
-  console.log(`[getLogSocket] FLASK_SOCKET_URL: ${flaskUrl}`);
   if (!flaskUrl) {
-    console.log('[getLogSocket] no FLASK_SOCKET_URL, returning null');
     return null;
   }
 
-  console.log('[getLogSocket] creating new socket...');
   _logSocket = io(flaskUrl, {
     transports: [process.env.FLASK_SOCKET_TRANSPORT || 'websocket'],
     autoConnect: false,
-
   });
   _socketInstanceCount++;
-  console.log(`[log-streamer] ★ Created socket #${_socketInstanceCount}`);
+
 
   _logSocket.on('connect', () => {
     console.log(`[log-streamer] ★★★ CONNECT fired (socket #${_socketInstanceCount})`);
@@ -105,16 +99,10 @@ function getLogSocket() {
     console.log('[log-streamer] ✗ DISCONNECT fired');
   });
 
-  _logSocket.on('connect_error', (err) => {
-    console.log(`[log-streamer] ✗ CONNECT_ERROR: ${err.message}`);
-    console.log(`[log-streamer] ➜ Is the Flask Socket.IO server running at ${flaskUrl}?`);
-    console.log(`[log-streamer] ➜ Verify: cd server-flask && python app.py`);
-    console.log(`[log-streamer] ➜ Also verify port matches: node expects ${flaskUrl}`);
-    if (process.env.FLASK_SOCKET_URL === undefined) {
-      console.log(`[log-streamer] ➜ Note: FLASK_SOCKET_URL was not set; defaulting to http://localhost:5002`);
-    }
-
+  _logSocket.on('connect_error', () => {
+    // Silence noisy connect errors; log streaming is best-effort.
   });
+
 
   const flaskTransportHint = process.env.FLASK_SOCKET_TRANSPORT || 'websocket';
   console.log(`[log-streamer] Calling socket.connect()... (${flaskUrl}, transport=${flaskTransportHint})`);
@@ -149,15 +137,12 @@ async function streamLog(taskId, stageId, type, data, end = false) {
   try {
     // Don't block waiting for socket - just skip if not connected
     const socket = getLogSocket();
-    console.log(`[streamLog] socket: ${socket ? socket.connected : 'null'}`);
     if (!socket || !socket.connected) {
       // Silently skip log streaming if socket not available
-      console.log('[streamLog] skipping - socket not connected');
       return;
     }
-    console.log(`[streamLog] emitting agent-log for task ${taskId}`);
     socket.emit('agent-log', { taskId, stageId, type, data, end });
-    console.log(`[streamLog] emitted successfully`);
+
   } catch (err) {
     console.error('[log-streamer] Failed to emit log:', err.message);
   }
@@ -355,6 +340,17 @@ export async function cloneRepository(repository, branch, destination) {
     let stderr = '';
     let stdout = '';
 
+    // Capture streaming output so we don't lose the real clone error reason
+    child.stdout?.on('data', (chunk) => {
+      const text = chunk.toString();
+      stdout += text;
+    });
+    child.stderr?.on('data', (chunk) => {
+      const text = chunk.toString();
+      stderr += text;
+    });
+
+
     const t = setTimeout(async () => {
       try {
         // Kill process group
@@ -461,9 +457,11 @@ export function createNotification(payload) {
   const notification = getNotificationById(id);
   
   // Broadcast notification via Flask Socket.IO
-  const flaskUrl = process.env.FLASK_SOCKET_URL || 'http://localhost:5002';
+  const flaskUrl = process.env.FLASK_SOCKET_URL;
+  if (!flaskUrl) return notification;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
   
   fetch(`${flaskUrl}/broadcast-notification`, {
     method: 'POST',
@@ -472,10 +470,11 @@ export function createNotification(payload) {
     signal: controller.signal
   })
     .then(() => clearTimeout(timeout))
-    .catch(err => {
+    .catch(() => {
       clearTimeout(timeout);
-      console.error('[createNotification] Failed to broadcast:', err);
+      // Best-effort broadcast; avoid noisy logs when Flask is down.
     });
+
   
   return notification;
 }
@@ -550,6 +549,15 @@ export async function deleteTask(taskId) {
 
 export async function processTask(task) {
   console.log('[processTask] START');
+  console.log('[processTask] task payload:', {
+    id: task.id,
+    title: task.title,
+    pipeline_id: task.pipeline_id,
+    status: task.status,
+    repository: task.repository,
+    target_branch: task.target_branch,
+    retry_count: task.retry_count,
+  });
   
   createNotification({
     userId: null,
@@ -652,66 +660,166 @@ export async function processTask(task) {
     const stageId = `${executionId}-${stage.id}`;
     const stageFolder = await ensureWorkspace(task.id, stage.id);
     
+    // Auto-select agent for this stage based on task characteristics
+    const selectedAgent = autoSelectAgentForStage(stage.id, task);
+    console.log(`[processTask] Stage '${stage.id}' auto-selected agent: ${selectedAgent}`);
+    
     let prompt;
     let result;
-    
-    // Use the correct prompt builder based on agent
-    if (stage.agent === 'gemini') {
+
+    // Use the correct prompt builder based on auto-selected agent
+    if (selectedAgent === 'gemini') {
       prompt = buildGeminiStagePrompt(stage, task, previousOutputs, repositoryPath);
-    } else if (stage.agent === 'ollama') {
+    } else if (selectedAgent === 'ollama') {
       prompt = buildOllamaStagePrompt(stage, task, previousOutputs, repositoryPath);
     } else {
       // devin and other agents
       prompt = buildDevinStagePrompt(stage, task, previousOutputs, repositoryPath);
     }
 
+    // Hard guarantee for coding stage: enforce exact FILE:/---/--- format in the prompt.
+    // This avoids runtime mismatch where agent prompt builders don't include strict FILE instructions.
+    if (stage.id === 'coding') {
+      prompt = [
+        `Stage: ${stage.name}`,
+        `Agent: ${selectedAgent}`,
+        `Task: ${task.title}`,
+        `Repository: ${task.repository || 'not specified'}`,
+        `Target branch: ${task.target_branch || 'not specified'}`,
+        repositoryPath ? `Repository path: ${repositoryPath}` : null,
+        '',
+        `Description: ${task.description || 'No additional description provided.'}`,
+        '',
+        'CRITICAL: Modify the real cloned repository working tree by emitting FILE blocks only.',
+        '',
+        'For each file, output EXACTLY in this format (including newlines):',
+        'FILE: path/to/file.ext',
+        '---',
+        'file contents here',
+        '---',
+        '',
+        'Rules:',
+        '- Use repo-relative paths only (NO absolute paths, NO /Users/..., NO ..).',
+        '- The FILE block format MUST be exactly: FILE: <path>\n---\n<content>\n---',
+        '- Do not output diffs or explanations before FILE blocks.',
+        '- If you cannot write valid FILE blocks, output: VERDICT: FAIL',
+        '',
+        'After the FILE blocks, you may include a short summary into implementation.diff.md (documentation only).',
+        '',
+        'Completion: when finished, print <<<CODER_COMPLETE>>>',
+      ].filter(Boolean).join('\n');
+    }
+
     db.prepare(`
       INSERT INTO stage_executions (id, execution_id, stage_name, status, input_data, started_at)
       VALUES (?, ?, ?, 'running', ?, ?)
-    `).run(stageId, executionId, stage.id, JSON.stringify({ prompt, task }), now());
+    `).run(stageId, executionId, stage.id, JSON.stringify({ prompt, task, selectedAgent }), now());
+
+    // Debug: persist the exact prompt used for this stage (helps confirm prompt wiring)
+    try {
+      if (stage.id === 'coding') {
+        await fs.writeFile(path.join(stageFolder, 'prompt-used.txt'), prompt, 'utf8');
+      }
+    } catch {
+      // ignore
+    }
     db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run(stage.id, now(), task.id);
     recordActivity({
       taskId: task.id,
       event_type: 'stage_started',
-      message: `Stage '${stage.name}' started.`,
-      details: JSON.stringify({ stage: stage.id }),
+      message: `Stage '${stage.name}' started with agent '${selectedAgent}'.`,
+      details: JSON.stringify({ stage: stage.id, agent: selectedAgent }),
     });
 
-    await streamLog(task.id, stage.id, 'system', `\x1b[1;34m>>> Starting stage: ${stage.name}\x1b[0m`);
+    await streamLog(task.id, stage.id, 'system', `\x1b[1;34m>>> Starting stage: ${stage.name} (agent: ${selectedAgent})\x1b[0m`);
 
     // Spawn terminal window to view agent logs in real-time
     spawnAgentTerminal(task.id);
 
     const stageLogId = stage.id;
-    // Use the correct agent based on stage configuration
-    if (stage.agent === 'gemini') {
-      result = await runGeminiStage({
-        prompt,
-        stageId: stage.id,
-        workspace: stageFolder,
-        onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
-        onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
-      });
-    } else if (stage.agent === 'ollama') {
-      result = await runOllamaStage({
-        prompt,
-        stageId: stage.id,
-        workspace: stageFolder,
-        onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
-        onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
-      });
-    } else {
-      result = await runDevinStage({
-        prompt,
-        stageId: stage.id,
-        workspace: stageFolder,
-        onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
-        onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
-      });
+
+    // Agent fallback: if the first choice fails, try alternatives for this stage.
+    const stageFallbacks = {
+      planning: ['gemini', 'devin', 'ollama'],
+      coding: ['devin', 'gemini', 'ollama'],
+      reviewing: ['gemini', 'devin', 'ollama'],
+    };
+
+    const fallbackOrder = stageFallbacks[stage.id] || [selectedAgent, 'devin', 'gemini', 'ollama'];
+    const tried = new Set();
+
+    for (const agent of fallbackOrder) {
+      if (tried.has(agent)) continue;
+      tried.add(agent);
+
+
+
+
+      try {
+        if (agent === 'gemini') {
+          result = await runGeminiStage({
+            prompt,
+            stageId: stage.id,
+            workspace: stageFolder,
+            onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
+            onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
+          });
+        } else if (agent === 'ollama') {
+          result = await runOllamaStage({
+            prompt,
+            stageId: stage.id,
+            workspace: stageFolder,
+            onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
+            onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
+          });
+        } else {
+          // devin default
+          result = await runDevinStage({
+            prompt,
+            stageId: stage.id,
+            workspace: stageFolder,
+            onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
+            onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
+          });
+        }
+
+        // If agent exited successfully, stop trying.
+        if (result && result.exitCode === 0) {
+          break;
+        }
+
+        console.log(`[processTask] stage ${stage.id}: agent '${agent}' failed (exitCode=${result?.exitCode}). Trying next fallback...`);
+      } catch (e) {
+        console.error(`[processTask] stage ${stage.id}: agent '${agent}' threw error:`, e?.stack || e?.message || String(e));
+      }
+    }
+
+    // If still no result (should be rare), fail the stage.
+    if (!result) {
+      result = { exitCode: 1, output: '', logs: 'No agent result produced.' };
+    }
+
+    console.log(`[processTask] stage ${stage.id} finalized with exitCode=${result.exitCode}`);
+
+    await streamLog(task.id, stageLogId, 'system', `\x1b[1;32m>>> Stage complete (exit ${result.exitCode})\x1b[0m`, true);
+
+    // Guardrail: for coding stages, require real working-tree modifications.
+    // If coder reports success but git shows no changes, mark stage as failed.
+    if (stage.id === 'coding') {
+      try {
+        const statusResult = spawnSync('git', ['status', '--porcelain'], { cwd: repositoryPath, encoding: 'utf8' });
+        const porcelain = statusResult.stdout ? statusResult.stdout.trim() : '';
+        if (!porcelain) {
+          console.warn('[processTask] coding stage produced no git changes; treating as failure.');
+          result.exitCode = 1;
+          result.logs = [result.logs, '[guardrail] no git working-tree changes detected after coding stage'].filter(Boolean).join('\n');
+        }
+      } catch (e) {
+        console.warn('[processTask] coding stage guardrail git status check failed:', e?.message || String(e));
+      }
     }
 
 
-    await streamLog(task.id, stageLogId, 'system', `\x1b[1;32m>>> Stage complete (exit ${result.exitCode})\x1b[0m`, true);
 
     const output = result.output || ''; 
     const logs = [result.logs, output].filter(Boolean).join('\n');
@@ -745,17 +853,40 @@ export async function processTask(task) {
       break;
     }
     if (stage.id === 'reviewing') {
-      finalVerdict = verdict || 'FAIL';
+      // If reviewer exited cleanly but didn't include an explicit VERDICT line,
+      // treat it as GO to avoid endless retries.
+      finalVerdict = verdict || (result.exitCode === 0 ? 'GO' : 'FAIL');
+
       if (finalVerdict !== 'GO') {
         if (task.retry_count < 2) {
-          const nextStatus = finalVerdict === 'ESCALATE' ? 'failed' : 'queued';
+          let nextStatus;
+          let retryStage;
+          
+          // Route based on verdict
+          if (finalVerdict === 'ESCALATE') {
+            nextStatus = 'escalated';
+            retryStage = null;
+          } else if (finalVerdict === 'SPEC_FAIL') {
+            // Specification failed - route back to PLANNER
+            nextStatus = 'queued';
+            retryStage = 'planning';
+          } else if (finalVerdict === 'FAIL') {
+            // Implementation failed - route back to CODER
+            nextStatus = 'queued';
+            retryStage = 'coding';
+          } else {
+            // Default to queued for unknown verdicts
+            nextStatus = 'queued';
+            retryStage = 'coding';
+          }
+          
           db.prepare('UPDATE tasks SET status = ?, retry_count = ?, updated_at = ? WHERE id = ?')
             .run(nextStatus, task.retry_count + 1, now(), task.id);
           recordActivity({
             taskId: task.id,
             event_type: finalVerdict === 'ESCALATE' ? 'escalated' : 'retry',
-            message: `Review verdict was ${finalVerdict}. Task ${nextStatus === 'queued' ? 'requeued' : 'escalated'}.`,
-            details: JSON.stringify({ verdict: finalVerdict, retryCount: task.retry_count + 1 }),
+            message: `Review verdict was ${finalVerdict}. Task ${nextStatus === 'queued' ? `requeued (retry from ${retryStage})` : 'escalated for human intervention'}.`,
+            details: JSON.stringify({ verdict: finalVerdict, retryCount: task.retry_count + 1, retryStage }),
           });
         } else {
           db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run('failed', now(), task.id);
@@ -772,7 +903,9 @@ export async function processTask(task) {
     previousOutputs.push(stage.id);
   }
   if (!failed) {
+    console.log(`[processTask] all stages finished with failed=false. Setting tasks/execution to completed.`);
     db.prepare('UPDATE executions SET status = ?, completed_at = ? WHERE id = ?').run('completed', now(), executionId);
+
     if (finalVerdict === 'GO' || pipeline.stages[pipeline.stages.length - 1].id !== 'reviewing') {
       let prUrl = `https://example.com/${task.repository || 'repo'}/pull/unknown`;
       let prNumber = `branch-task-${task.id.slice(0, 8)}`;
@@ -781,9 +914,15 @@ export async function processTask(task) {
           const branchName = `task-${task.id.slice(0, 8)}`;
           
           // Check if there are changes
-          const statusResult = spawnSync('git', ['status', '--porcelain'], { cwd: repositoryPath, encoding: 'utf8' });
-          
-          if (statusResult.stdout && statusResult.stdout.trim() !== '') {
+            const statusResult = spawnSync('git', ['status', '--porcelain'], { cwd: repositoryPath, encoding: 'utf8' });
+            const porcelain = statusResult.stdout ? statusResult.stdout.trim() : '';
+            console.log('[processTask] git status --porcelain (changed? ' + (porcelain ? 'yes' : 'no') + ')');
+            if (!porcelain) {
+              console.log('[processTask] porcelain empty; last artifacts may be documentation-only.');
+            }
+            
+            if (porcelain) {
+
             // Configure remote with HTTPS credentials for push
             // (Bitbucket + GitHub)
             const bitbucketToken = process.env.BITBUCKET_HTTPS_TOKEN;

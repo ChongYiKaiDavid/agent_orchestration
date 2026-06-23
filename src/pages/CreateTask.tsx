@@ -87,9 +87,6 @@ const CreateTask: React.FC<CreateTaskProps> = ({ onCreate }) => {
           >
             <option value="code-only">Code Only</option>
             <option value="plan-code-review">Plan → Code → Review</option>
-            <option value="gemini-code-only">Gemini Code Only</option>
-            <option value="ollama-code-only">Ollama Code Only</option>
-            <option value="ollama-plan-code-review">Ollama Plan → Code → Review</option>
           </select>
         </label>
 

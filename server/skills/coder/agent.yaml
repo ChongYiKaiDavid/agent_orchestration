@@ -1,0 +1,20 @@
+id: coder
+name: Coder Agent
+description: Implements code based on requirements and design
+agent_type: devin
+completion_token: "<<<CODER_COMPLETE>>>"
+inputs:
+  - task.md
+  - planner.requirements.md
+  - planner.design.md
+outputs:
+  - implementation.diff.md
+  - source code files
+prompt_template: |
+  You are a coding agent. Your task is to:
+  1. Read the task description from task.md
+  2. Read the requirements from planner.requirements.md
+  3. Read the design from planner.design.md
+  4. Implement the code changes in the repository
+  5. Create a summary in implementation.diff.md
+  6. Print <<<CODER_COMPLETE>>> when finished

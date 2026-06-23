@@ -62,7 +62,7 @@ function detectKeywords(title, description) {
 function selectBestAgent(taskType, complexity, keywords) {
   const text = `${taskType} ${complexity} ${keywords.join(' ')}`;
 
-  // If user wants Ollama-only, force it.
+  // Force Ollama-only for testing purposes
   if (process.env.OLLAMA_ONLY === 'true') {
     return 'ollama';
   }
@@ -103,55 +103,48 @@ function selectBestAgent(taskType, complexity, keywords) {
 
 function selectBestPipeline(taskType, complexity, preferredAgent) {
   // Ollama-only mode
-  if (process.env.OLLAMA_ONLY === 'true' && preferredAgent === 'ollama') {
-    if (complexity === 'high') {
-      return 'ollama-plan-code-review';
-    }
-    if (taskType === 'planning' || taskType === 'review') {
-      return 'ollama-plan-code-review';
+  if (process.env.OLLAMA_ONLY === 'true') {
+    // For Ollama-only mode, still use the standard pipelines but agent selection will pick ollama
+    if (complexity === 'high' || taskType === 'planning' || taskType === 'review') {
+      return 'plan-code-review';
     }
     if (taskType === 'coding') {
-      if (complexity === 'low') return 'ollama-code-only';
-      return 'ollama-plan-code-review';
-    }
-    return 'ollama-plan-code-review';
-  }
-
-  // High complexity tasks need full pipeline
-  if (complexity === 'high') {
-    if (preferredAgent === 'gemini') {
-      return 'gemini-plan-code-review';
-    } else if (preferredAgent === 'devin') {
+      if (complexity === 'low') return 'code-only';
       return 'plan-code-review';
     }
     return 'plan-code-review';
   }
 
+  // High complexity tasks need full pipeline
+  if (complexity === 'high') {
+    return 'plan-code-review';
+  }
+
   // Planning-only tasks
   if (taskType === 'planning') {
-    return preferredAgent === 'gemini' ? 'gemini-plan-code-review' : 'plan-code-review';
+    return 'plan-code-review';
   }
 
   // Documentation tasks - single stage is fine
   if (taskType === 'docs') {
-    return 'gemini-code-only';
+    return 'code-only';
   }
 
   // Review tasks
   if (taskType === 'review') {
-    return 'gemini-code-only';
+    return 'code-only';
   }
 
-  // Coding tasks - use hybrid for balanced approach
+  // Coding tasks
   if (taskType === 'coding') {
     if (complexity === 'low') {
-      return preferredAgent === 'gemini' ? 'gemini-code-only' : 'code-only';
+      return 'code-only';
     }
-    return 'hybrid-gemini-devin';
+    return 'plan-code-review';
   }
 
-  // Default to hybrid pipeline
-  return 'hybrid-gemini-devin';
+  // Default to full pipeline
+  return 'plan-code-review';
 }
 
 
@@ -180,22 +173,54 @@ export function autoSelectPipelineAndAgent(task) {
   };
 }
 
+export function autoSelectAgentForStage(stageId, task) {
+  const title = task.title || '';
+  const description = task.description || '';
+  
+  // Force Ollama-only for testing purposes
+  if (process.env.OLLAMA_ONLY === 'true') {
+    return 'ollama';
+  }
+  
+  const complexity = analyzeTaskComplexity(title, description);
+  const taskType = analyzeTaskType(title, description);
+  const keywords = detectKeywords(title, description);
+  
+  // Select agent based on stage and task characteristics
+  if (stageId === 'planning') {
+    // For planning, prefer Gemini for speed, but use Devin for complex tasks
+    if (complexity === 'high') {
+      return 'devin';
+    }
+    return 'gemini';
+  } else if (stageId === 'coding') {
+    // For coding, prefer Devin for complex tasks, Gemini for simple ones
+    if (complexity === 'high' || complexity === 'medium') {
+      return 'devin';
+    }
+    return 'gemini';
+  } else if (stageId === 'reviewing') {
+    // For reviewing, prefer Gemini for speed
+    return 'gemini';
+  }
+  
+  // Default to Devin
+  return 'devin';
+}
+
 function buildReasoningText(taskType, complexity, agent, pipeline) {
   const agents = {
     devin: 'Devin (better for complex coding)',
     gemini: 'Gemini (faster for planning/reviews)',
-    hybrid: 'Hybrid (Gemini plan + Devin code)',
+    ollama: 'Ollama (local AI)',
   };
   
   const pipelines = {
-    'plan-code-review': 'full 3-stage Devin pipeline',
-    'code-only': 'single-stage Devin coding',
-    'gemini-plan-code-review': 'full 3-stage Gemini pipeline',
-    'gemini-code-only': 'single-stage Gemini',
-    'hybrid-gemini-devin': 'hybrid pipeline (optimal)',
+    'plan-code-review': 'full 3-stage pipeline (plan → code → review)',
+    'code-only': 'single-stage coding pipeline',
   };
   
-  return `${agents[agent]} with ${pipelines[pipeline]} for ${complexity} complexity ${taskType} task.`;
+  return `${agents[agent] || 'Auto-selected agent'} with ${pipelines[pipeline] || pipeline} for ${complexity} complexity ${taskType} task.`;
 }
 
 export function listAgents() {

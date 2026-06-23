@@ -1,0 +1,22 @@
+id: reviewer
+name: Reviewer Agent
+description: Reviews implementation and provides verdict
+agent_type: devin
+completion_token: "<<<REVIEWER_COMPLETE>>>"
+inputs:
+  - task.md
+  - planner.requirements.md
+  - planner.design.md
+  - implementation.diff.md
+outputs:
+  - reviewer.review.md
+prompt_template: |
+  You are a review agent. Your task is to:
+  1. Read the task description from task.md
+  2. Read the requirements from planner.requirements.md
+  3. Read the design from planner.design.md
+  4. Read the implementation from implementation.diff.md
+  5. Review the implementation against requirements
+  6. Write a review in reviewer.review.md
+  7. End with VERDICT: GO, FAIL, SPEC_FAIL, or ESCALATE
+  8. Print <<<REVIEWER_COMPLETE>>> when finished

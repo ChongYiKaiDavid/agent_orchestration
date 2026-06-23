@@ -116,7 +116,20 @@ function writeFilesFromOutput(output, repoPath) {
   const executed = [];
   for (const [filename, content] of Object.entries(files)) {
     try {
-      const filePath = path.join(repoPath, filename);
+      // Enforce repo-relative paths only (no absolute paths, no path traversal)
+      // Absolute paths from the model can cause writes outside the cloned repo.
+      if (path.isAbsolute(filename) || filename.includes('..')) {
+        console.error(`[ollama] Refusing to write outside repo. filename='${filename}'`);
+        continue;
+      }
+
+      const repoAbs = path.resolve(repoPath);
+      const filePath = path.resolve(path.join(repoAbs, filename));
+      if (!filePath.startsWith(repoAbs + path.sep) && filePath !== repoAbs) {
+        console.error(`[ollama] Refusing to write outside repo after resolution. filename='${filename}' resolved='${filePath}'`);
+        continue;
+      }
+
       console.log(`[ollama] Attempting to write: ${filePath}`);
       console.log(`[ollama] Repo path: ${repoPath}`);
       console.log(`[ollama] Filename: ${filename}`);
@@ -126,6 +139,7 @@ function writeFilesFromOutput(output, repoPath) {
       fs.writeFileSync(filePath, content, 'utf8');
       executed.push(filename);
       console.log(`[ollama] Successfully wrote file: ${filename} (${content.length} chars)`);
+
       
       // Verify the write
       const writtenContent = fs.readFileSync(filePath, 'utf8');
@@ -200,6 +214,17 @@ export async function runOllamaStage({ prompt, stageId, workspace, onStdout, onS
       }
     }
 
+    // Detect completion tokens in output
+    const completionTokens = ['<<<PLANNER_COMPLETE>>>', '<<<CODER_COMPLETE>>>', '<<<REVIEWER_COMPLETE>>>'];
+    for (const token of completionTokens) {
+      if (result.output && result.output.includes(token)) {
+        console.log(`[runOllamaStage] Detected completion token: ${token}`);
+        fsPromises.writeFile(path.join(workspace, '.done'), token).catch(err => {
+          console.error('[runOllamaStage] Failed to write .done file:', err);
+        });
+      }
+    }
+
     return result;
   } catch (error) {
     console.error('[ollama] HTTP API failed, falling back to CLI:', error.message);
@@ -220,11 +245,33 @@ export async function runOllamaStage({ prompt, stageId, workspace, onStdout, onS
 
       let stdout = '';
       let stderr = '';
+      let completed = false;
 
       child.stdout.on('data', (chunk) => {
         const text = chunk.toString();
         stdout += text;
         onStdout?.(text);
+
+        // Detect completion tokens
+        const completionTokens = ['<<<PLANNER_COMPLETE>>>', '<<<CODER_COMPLETE>>>', '<<<REVIEWER_COMPLETE>>>'];
+        for (const token of completionTokens) {
+          if (stdout.includes(token)) {
+            console.log(`[runOllamaStage] Detected completion token: ${token}`);
+            if (!completed) {
+              completed = true;
+              fsPromises.writeFile(path.join(workspace, '.done'), token).catch(err => {
+                console.error('[runOllamaStage] Failed to write .done file:', err);
+              });
+              setTimeout(() => {
+                try {
+                  child.kill('SIGTERM');
+                } catch (e) {
+                  // Process may already be dead
+                }
+              }, 500);
+            }
+          }
+        }
       });
 
       const timeoutMs = Number(process.env.OLLAMA_CLI_TIMEOUT_MS || 180000); // 3m
@@ -315,6 +362,7 @@ export function buildStagePrompt(stage, task, previousArtifacts = [], repository
       lines.push('Produce a short requirements document and a design summary for this task.');
       lines.push('Write two artifacts: planner.requirements.md and planner.design.md.');
       lines.push('Format the response clearly and include a final line with VERDICT: GO.');
+      lines.push('Print <<<PLANNER_COMPLETE>>> when finished.');
       break;
 
     case 'coding':
@@ -354,12 +402,14 @@ export function buildStagePrompt(stage, task, previousArtifacts = [], repository
       lines.push('IMPORTANT: After writing files, verify with git status (inside your head / reasoning).');
       lines.push('');
       lines.push('VERDICT: GO - when files are actually modified with substantial changes.');
+      lines.push('Print <<<CODER_COMPLETE>>> when finished.');
       break;
 
     case 'reviewing':
       lines.push('Review the implementation diff against the requirements.');
       lines.push('Write a review in reviewer.review.md.');
       lines.push('End your response with VERDICT: GO, FAIL, SPEC_FAIL, or ESCALATE.');
+      lines.push('Print <<<REVIEWER_COMPLETE>>> when finished.');
       break;
 
     default:

@@ -4,7 +4,7 @@ description: "Create a plan, implement the code, then review it."
 stages:
   - id: planning
     name: Planning
-    agent: devin
+    agent: gemini
     summary: "Create a requirements and design plan for the task."
     outputFiles:
       - planner.requirements.md
@@ -17,7 +17,7 @@ stages:
       - implementation.diff.md
   - id: reviewing
     name: Reviewing
-    agent: devin
+    agent: gemini
     summary: "Review the implementation and produce a verdict."
     outputFiles:
       - reviewer.review.md
