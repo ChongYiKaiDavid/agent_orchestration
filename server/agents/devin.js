@@ -206,7 +206,7 @@ export function buildStagePrompt(stage, task, previousArtifacts = [], repository
       lines.push('Format the response clearly and include a final line with VERDICT: GO.');
       lines.push('Print <<<PLANNER_COMPLETE>>> when finished.');
       break;
-
+    case 'coding':
       lines.push('Target working directory: the cloned repository at: ' + (repositoryPath ? repositoryPath : '<repoPath>') + '.');
       lines.push('After modifications, also write a human-readable summary of what you changed into implementation.diff.md (does not replace actual file edits).');
       lines.push('Include a line formatted exactly as: FILES_CHANGED: <comma-separated file paths>.');

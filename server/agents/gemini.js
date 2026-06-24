@@ -61,7 +61,7 @@ function buildGeminiArgs(promptFile, promptText) {
       arg === '<PROMPT_FILE>' ? promptFile : arg
     );
   }
-  return ['-p', promptText, '--skip-trust'];
+  return ['-p','--skip-trust'];
 }
 
 function parseFileBlocks(output) {
@@ -114,7 +114,7 @@ export async function runGeminiStage({ prompt, stageId, workspace, onStdout, onS
   const env = {
     ...process.env,
     GEMINI_PERMISSION_MODE: process.env.GEMINI_PERMISSION_MODE || 'auto',
-    GEMINI_API_KEY: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '',
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
   };
 
   const timeoutMs = Number(process.env.GEMINI_CLI_TIMEOUT_MS || 180000); // default 3 minutes
@@ -122,6 +122,8 @@ export async function runGeminiStage({ prompt, stageId, workspace, onStdout, onS
 
   return new Promise((resolve) => {
     const child = spawn(command, args, { cwd: workspace, env, shell: process.platform === 'win32' });
+    child.stdin.write(prompt);
+    child.stdin.end();
 
 
     let stdout = '';
@@ -243,7 +245,7 @@ export function buildStagePrompt(stage, task, previousArtifacts = [], repository
       lines.push('Format the response clearly and include a final line with VERDICT: GO.');
       lines.push('Print <<<PLANNER_COMPLETE>>> when finished.');
       break;
-
+    case 'coding':
       lines.push('After modifications, also write a human-readable summary of what you changed into implementation.diff.md (this is documentation only; do not rely on the diff for the actual edit).');
 
       lines.push('Include any assumptions and list the files changed.');
@@ -265,5 +267,5 @@ export function buildStagePrompt(stage, task, previousArtifacts = [], repository
   lines.push('- Use VERDICT: <value> only when prompted.');
   lines.push('- If the stage cannot complete, explain why and stop.');
 
-  return lines.join('\\n');
+  return lines.join('\n');
 }

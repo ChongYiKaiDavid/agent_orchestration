@@ -815,6 +815,9 @@ export async function processTask(task) {
         }
 
         console.log(`[processTask] stage ${stage.id}: agent '${agent}' failed (exitCode=${result?.exitCode}). Trying next fallback...`);
+        if (result?.logs) {
+          console.error(`[processTask] ${agent} stderr:`, result.logs);
+        }
       } catch (e) {
         console.error(`[processTask] stage ${stage.id}: agent '${agent}' threw error:`, e?.stack || e?.message || String(e));
       }
