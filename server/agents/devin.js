@@ -109,7 +109,7 @@ export async function runDevinStage({ prompt, stageId, workspace, onStdout, onSt
   try {
     const promptFile = await writePromptFile(workspace, prompt);
 
-    const command = await getDevinCommand();
+    let command = await getDevinCommand();
     const args = ['--prompt-file', promptFile, '--print'];
     const env = {
       ...process.env,
@@ -120,7 +120,13 @@ export async function runDevinStage({ prompt, stageId, workspace, onStdout, onSt
     const repoPath = path.join(path.dirname(workspace), 'repo');
 
     return new Promise((resolve) => {
-      const child = spawn(command, args, { cwd: workspace, env, shell: process.platform === 'win32' });
+      if (process.platform === 'win32' && command.includes(' ')) {
+        command = `"${command}"`;
+      }
+      const finalArgs = args.map(arg => (process.platform === 'win32' && arg.includes(' ')) ? `"${arg}"` : arg);
+      const child = spawn(command, finalArgs, { cwd: workspace, env, shell: process.platform === 'win32' });
+      child.stdin.write(prompt);
+      child.stdin.end();
 
       let stdout = '';
       let stderr = '';

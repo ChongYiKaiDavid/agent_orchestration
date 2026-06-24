@@ -228,13 +228,16 @@ export async function runOllamaStage({ prompt, stageId, workspace, onStdout, onS
     return result;
   } catch (error) {
     console.error('[ollama] HTTP API failed, falling back to CLI:', error.message);
-    const command = await getOllamaCommand();
+    let command = await getOllamaCommand();
 
     return new Promise((resolve) => {
       const cliTimeoutMs = Number(process.env.OLLAMA_CLI_TIMEOUT_MS || 300000); // Increased to 5 minutes
-
+      if (process.platform === 'win32' && command.includes(' ')) {
+        command = `"${command}"`;
+      }
       console.error(`[ollama] CLI fallback starting: ${command} run ${model} (timeout ${cliTimeoutMs}ms)`);
       const child = spawn(command, ['run', model], {
+        shell: process.platform === 'win32',
         env: {
           ...process.env,
           OLLAMA_HOST: getOllamaHost(),
