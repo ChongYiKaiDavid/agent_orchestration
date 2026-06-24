@@ -29,11 +29,11 @@ export async function createTask(payload: TaskCreatePayload) {
   return parseJson(response);
 }
 
-export async function decomposeEpic(epicDescription: string) {
+export async function decomposeEpic(payload: DecomposeEpicPayload) {
   const response = await fetch('/api/tasks/decompose', {
     method: 'POST',
     headers: defaultHeaders,
-    body: JSON.stringify({ epicDescription }),
+    body: JSON.stringify(payload),
   });
   return parseJson(response);
 }
@@ -70,6 +70,13 @@ export async function fetchAgents() {
 
 export async function deleteTask(taskId: string) {
   const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+    method: 'DELETE',
+    headers: defaultHeaders,
+  });
+  return parseJson(response);
+}
+
+etch(`/api/tasks/${encodeURIComponent(taskId)}`, {
     method: 'DELETE',
     headers: defaultHeaders,
   });

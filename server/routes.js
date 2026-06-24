@@ -197,8 +197,9 @@ Format example:
         pipeline: 'auto',
         priority: 'medium',
         // Preserve repo context if it was provided with the epic request
-        repository: req.body?.repository || null,
-        targetBranch: req.body?.targetBranch || null,
+        repository: repository || null,
+        targetBranch: targetBranch || null,
+        jira_ticket: jiraTicket || null,
       });
       createdTasks.push(task);
     }

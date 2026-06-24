@@ -35,6 +35,9 @@ const Decompose: React.FC = () => {
       })));
       setSuccess(`${createdDrafts.length} tasks created from the epic description.`);
       setEpicDescription('');
+      setRepository('');
+      setTargetBranch('');
+      setJiraTicket('');
     } catch (err) {
       setError((err as Error).message || 'Unable to decompose the epic.');
     } finally {
@@ -63,6 +66,30 @@ const Decompose: React.FC = () => {
         </button>
 
         {error && <div className="decompose-error" role="alert">{error}</div>}
+        {success && <div className="decompose-success" role="status">{success}</div>}
+      </div>
+      <div className="decompose-drafts">
+        <h3 className="decompose-drafts-title" aria-label="Drafts">Drafts</h3>
+
+        <div style={{ display: 'grid', gap: 12 }}>
+          {drafts.length === 0 && (
+            <div className="card">No drafts yet. Enter an epic description and click Decompose.</div>
+
+          )}
+          {drafts.map((d) => (
+            <div key={d.id} className="card">
+              <div style={{ fontWeight: 800 }}>{d.title}</div>
+              <div style={{ marginTop: 6, color: 'rgba(243,244,246,0.65)' }}>{d.summary}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Decompose;
+ror" role="alert">{error}</div>}
         {success && <div className="decompose-success" role="status">{success}</div>}
       </div>
       <div className="decompose-drafts">
