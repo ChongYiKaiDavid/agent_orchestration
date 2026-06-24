@@ -10,7 +10,7 @@ const config = {
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:5002',
+        target: 'http://127.0.0.1:5174',
         changeOrigin: true,
         secure: false,
       },

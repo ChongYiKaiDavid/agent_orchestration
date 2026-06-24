@@ -13,7 +13,7 @@ async function writePromptFile(root, prompt) {
 
 async function isExecutable(filePath) {
   try {
-    await fs.access(filePath);
+    await fs.access(filePath, fs.constants.X_OK);
     return true;
   } catch {
     return false;
@@ -24,14 +24,18 @@ async function findExecutableInPath(name) {
   const pathEnv = process.env.PATH || '';
   const pathDirs = pathEnv.split(path.delimiter).filter(Boolean);
   const extensions = process.platform === 'win32'
-    ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';')
+    ? (process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';')
     : [''];
 
   for (const dir of pathDirs) {
     for (const ext of extensions) {
       const candidate = path.join(dir, `${name}${ext}`);
-      if (await isExecutable(candidate)) {
-        return candidate;
+      try {
+        if ((await fs.stat(candidate)).isFile() && (await isExecutable(candidate))) {
+          return candidate;
+        }
+      } catch {
+        // file does not exist or other error, continue
       }
     }
   }
@@ -41,12 +45,22 @@ async function findExecutableInPath(name) {
 
 async function getDevinCommand() {
   if (process.env.DEVIN_PATH) {
-    return process.env.DEVIN_PATH;
+    if (await isExecutable(process.env.DEVIN_PATH)) {
+        return process.env.DEVIN_PATH;
+    } else {
+        throw new Error(`DEVIN_PATH is set to '${process.env.DEVIN_PATH}', but this file is not executable or does not exist.`);
+    }
   }
 
-  const defaultName = process.platform === 'win32' ? 'devin.exe' : 'devin';
+  const defaultName = process.platform === 'win32' ? 'devin' : 'devin';
   const found = await findExecutableInPath(defaultName);
-  return found || defaultName;
+  
+  if (found) {
+    return found;
+  }
+  
+  const exeName = process.platform === 'win32' ? 'devin.exe' : 'devin';
+  throw new Error(`'${exeName}' not found in your PATH. Please install the Devin CLI or set the DEVIN_PATH environment variable to the full path of the executable.`);
 }
 
 function parseFileBlocks(output) {
@@ -92,90 +106,84 @@ function writeFilesFromOutput(output, repoPath) {
 }
 
 export async function runDevinStage({ prompt, stageId, workspace, onStdout, onStderr }) {
-  const promptFile = await writePromptFile(workspace, prompt);
+  try {
+    const promptFile = await writePromptFile(workspace, prompt);
 
-  const command = await getDevinCommand();
-  const args = ['--prompt-file', promptFile, '--print'];
-  const env = {
-    ...process.env,
-    DEVIN_PERMISSION_MODE: process.env.DEVIN_PERMISSION_MODE || 'dangerous',
-    // Allow selecting a cheaper/free model (if your Devin CLI supports it)
-    // e.g. set DEVIN_MODEL=codex or opus in env.
-    DEVIN_MODEL: process.env.DEVIN_MODEL,
-  };
+    const command = await getDevinCommand();
+    const args = ['--prompt-file', promptFile, '--print'];
+    const env = {
+      ...process.env,
+      DEVIN_PERMISSION_MODE: process.env.DEVIN_PERMISSION_MODE || 'dangerous',
+      DEVIN_MODEL: process.env.DEVIN_MODEL,
+    };
 
-  const repoPath = path.join(path.dirname(workspace), 'repo');
+    const repoPath = path.join(path.dirname(workspace), 'repo');
 
-  return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd: workspace, env, shell: process.platform === 'win32' });
+    return new Promise((resolve) => {
+      const child = spawn(command, args, { cwd: workspace, env, shell: process.platform === 'win32' });
 
+      let stdout = '';
+      let stderr = '';
+      let completed = false;
 
-    let stdout = '';
-    let stderr = '';
-    let completed = false;
+      child.stdout.on('data', (chunk) => {
+        const text = chunk.toString();
+        stdout += text;
+        if (onStdout) onStdout(text);
 
-    child.stdout.on('data', (chunk) => {
-      const text = chunk.toString();
-      stdout += text;
-      if (onStdout) onStdout(text);
-
-      // Detect completion tokens
-      const completionTokens = ['<<<PLANNER_COMPLETE>>>', '<<<CODER_COMPLETE>>>', '<<<REVIEWER_COMPLETE>>>'];
-      for (const token of completionTokens) {
-        if (stdout.includes(token)) {
-          console.log(`[runDevinStage] Detected completion token: ${token}`);
-          if (!completed) {
-            completed = true;
-            // Create .done file
-            fs.writeFile(path.join(workspace, '.done'), token).catch(err => {
-              console.error('[runDevinStage] Failed to write .done file:', err);
-            });
-            // Kill process after a short delay to allow final output
-            setTimeout(() => {
-              try {
-                child.kill('SIGTERM');
-              } catch (e) {
-                // Process may already be dead
-              }
-            }, 500);
+        const completionTokens = ['<<<PLANNER_COMPLETE>>>', '<<<CODER_COMPLETE>>>', '<<<REVIEWER_COMPLETE>>>'];
+        for (const token of completionTokens) {
+          if (stdout.includes(token)) {
+            if (!completed) {
+              completed = true;
+              fs.writeFile(path.join(workspace, '.done'), token).catch(() => {});
+              setTimeout(() => {
+                try {
+                  child.kill('SIGTERM');
+                } catch (e) {}
+              }, 500);
+            }
           }
         }
-      }
-    });
+      });
 
-    child.stderr.on('data', (chunk) => {
-      const text = chunk.toString();
-      stderr += text;
-      if (onStderr) onStderr(text);
-    });
+      child.stderr.on('data', (chunk) => {
+        const text = chunk.toString();
+        stderr += text;
+        if (onStderr) onStderr(text);
+      });
 
-    child.on('close', (code) => {
-      const output = stdout.trim();
-      try {
-        const written = writeFilesFromOutput(output, repoPath);
-        if (written.length > 0) {
-          onStdout?.(`\n[WRITTEN ${written.length} files: ${written.join(', ')}]\n`);
-        }
-      } catch {
-        // ignore
-      }
+      child.on('close', (code) => {
+        const output = stdout.trim();
+        try {
+          const written = writeFilesFromOutput(output, repoPath);
+          if (written.length > 0) {
+            onStdout?.(`\n[WRITTEN ${written.length} files: ${written.join(', ')}]\n`);
+          }
+        } catch {}
 
-      resolve({
-        exitCode: code,
-        output,
-        logs: stderr.trim(),
+        resolve({
+          exitCode: code,
+          output,
+          logs: stderr.trim(),
+        });
+      });
+
+      child.on('error', (error) => {
+        resolve({
+          exitCode: 1,
+          output: '',
+          logs: `Failed to start Devin CLI at '${command}': ${error.message}`,
+        });
       });
     });
-
-
-    child.on('error', (error) => {
-      resolve({
-        exitCode: 1,
-        output: '',
-        logs: `Failed to start Devin CLI at '${command}': ${error.message}`,
-      });
-    });
-  });
+  } catch (error) {
+    return {
+      exitCode: 1,
+      output: '',
+      logs: error.message,
+    };
+  }
 }
 
 export function buildStagePrompt(stage, task, previousArtifacts = [], repositoryPath = null) {
