@@ -1,10 +1,7 @@
-export type TaskCreatePayload = {
-  title: string;
-  description?: string;
-  pipeline?: string;
+export type DecomposeEpicPayload = {
+  description: string;
   repository?: string;
   targetBranch?: string;
-  priority?: string;
   jiraTicket?: string;
 };
 
@@ -70,13 +67,6 @@ export async function fetchAgents() {
 
 export async function deleteTask(taskId: string) {
   const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
-    method: 'DELETE',
-    headers: defaultHeaders,
-  });
-  return parseJson(response);
-}
-
-etch(`/api/tasks/${encodeURIComponent(taskId)}`, {
     method: 'DELETE',
     headers: defaultHeaders,
   });

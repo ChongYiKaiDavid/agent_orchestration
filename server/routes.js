@@ -143,9 +143,9 @@ router.post('/tasks/from-jira', express.json(), (req, res) => {
 
 
 router.post('/tasks/decompose', express.json(), async (req, res) => {
-  const { epicDescription } = req.body;
-  if (!epicDescription) {
-    return res.status(400).json({ error: 'Missing required field: epicDescription' });
+  const { description, repository, targetBranch, jiraTicket } = req.body;
+  if (!description) {
+    return res.status(400).json({ error: 'Missing required field: description' });
   }
 
   try {
@@ -157,7 +157,7 @@ Task: Decompose Epic
 Agent: Devin
 
 Epic Description:
-${epicDescription}
+${description}
 
 Instructions:
 You are an expert technical project manager. Your job is to decompose the above epic description into 2 to 5 smaller, manageable subtasks. 

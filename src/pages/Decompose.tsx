@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { decomposeEpic } from '../api';
+import { DecomposeEpicPayload } from '../api'; // Import the new type
 
 interface DraftTask {
   id: string;
@@ -9,6 +10,9 @@ interface DraftTask {
 
 const Decompose: React.FC = () => {
   const [epicDescription, setEpicDescription] = useState('');
+  const [repository, setRepository] = useState('');
+  const [targetBranch, setTargetBranch] = useState('');
+  const [jiraTicket, setJiraTicket] = useState('');
   const [drafts, setDrafts] = useState<DraftTask[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +30,13 @@ const Decompose: React.FC = () => {
 
     setLoading(true);
     try {
-      const createdDrafts = await decomposeEpic(trimmed);
+      const payload: DecomposeEpicPayload = {
+        description: trimmed,
+        repository: repository || undefined,
+        targetBranch: targetBranch || undefined,
+        jiraTicket: jiraTicket || undefined,
+      };
+      const createdDrafts = await decomposeEpic(payload);
 
       setDrafts(createdDrafts.map((task: any) => ({
         id: task.id,
@@ -61,6 +71,21 @@ const Decompose: React.FC = () => {
           />
         </label>
 
+        <label className="create-task-field">
+          <span className="create-task-label">Repository URL</span>
+          <input className="create-task-input" placeholder="e.g. https://github.com/org/repo.git" value={repository} onChange={(event) => setRepository(event.target.value)} />
+        </label>
+
+        <label className="create-task-field">
+          <span className="create-task-label">Target Branch</span>
+          <input className="create-task-input" placeholder="e.g. main" value={targetBranch} onChange={(event) => setTargetBranch(event.target.value)} />
+        </label>
+
+        <label className="create-task-field">
+          <span className="create-task-label">Jira Ticket</span>
+          <input className="create-task-input" placeholder="e.g. BANK-1234" value={jiraTicket} onChange={(event) => setJiraTicket(event.target.value)} />
+        </label>
+
         <button className="decompose-submit" type="button" onClick={handleDecompose} disabled={loading}>
           {loading ? 'Decomposing…' : 'Decompose'}
         </button>
@@ -74,31 +99,6 @@ const Decompose: React.FC = () => {
         <div style={{ display: 'grid', gap: 12 }}>
           {drafts.length === 0 && (
             <div className="card">No drafts yet. Enter an epic description and click Decompose.</div>
-
-          )}
-          {drafts.map((d) => (
-            <div key={d.id} className="card">
-              <div style={{ fontWeight: 800 }}>{d.title}</div>
-              <div style={{ marginTop: 6, color: 'rgba(243,244,246,0.65)' }}>{d.summary}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default Decompose;
-ror" role="alert">{error}</div>}
-        {success && <div className="decompose-success" role="status">{success}</div>}
-      </div>
-      <div className="decompose-drafts">
-        <h3 className="decompose-drafts-title" aria-label="Drafts">Drafts</h3>
-
-        <div style={{ display: 'grid', gap: 12 }}>
-          {drafts.length === 0 && (
-            <div className="card">No drafts yet. Enter an epic description and click Decompose.</div>
-
           )}
           {drafts.map((d) => (
             <div key={d.id} className="card">
