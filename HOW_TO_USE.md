@@ -11,6 +11,8 @@ Instead of manually giving instructions to an AI every single time, this applica
 2. **Coding:** An AI writes the code based on the plan.
 3. **Reviewing:** An AI reviews the code to ensure it's safe and correct.
 
+The system automatically selects the optimal AI agent (Devin, Gemini, or Ollama) for each stage based on task complexity and stage type - no manual agent selection required.
+
 ### The Four Main Components
 
 To make this magic happen, the application is split into four separate parts that must run at the same time:
@@ -19,6 +21,13 @@ To make this magic happen, the application is split into four separate parts tha
 2. **The Backend Server (API):** A server that takes your tasks from the UI and saves them into a local database (SQLite).
 3. **The Background Worker:** An automated system that constantly checks the database for new tasks. When it finds one, it claims it, prepares an isolated workspace folder, and runs the AI agent through the pipeline stages. It streams live logs to the Flask Socket.IO server.
 4. **The Flask Socket.IO Server:** A real-time event server that receives agent log events from the worker and broadcasts them to connected browser clients. It also provides interactive PTY (terminal) sessions.
+
+**Key Points:**
+- **Pipeline YAML** controls the workflow and decides which stages run
+- **Agent YAML** (in `skills/` directory) defines how each agent executes its task
+- **Auto-selection** picks the optimal agent (Devin/Gemini/Ollama) per stage based on task complexity
+- **Completion tokens** (e.g., `<<<PLANNER_COMPLETE>>>`) signal when an agent finishes
+- **Verdict-based routing** handles GO, FAIL, SPEC_FAIL and ESCALATE outcomes from the reviewer
 
 ---
 cd "C:\Users\Gary Chong\Downloads\Telegram Desktop\agent_orchestration\agent_orchestration"
@@ -273,13 +282,38 @@ cp .env.example .env.agent_orchestration
 | `JIRA_API_TOKEN` | Jira API token |
 | `BITBUCKET_USERNAME` | Bitbucket username |
 | `BITBUCKET_APP_PASSWORD` | Bitbucket app password |
-| `BITBUCKET_HTTPS_TOKEN` | Bitbucket access token for HTTPS |
+| `BITBUCKET_TOKEN` | Bitbucket access token |
+| `BITBUCKET_HTTPS_TOKEN` | Bitbucket HTTPS token |
 | `GITHUB_TOKEN` | GitHub Personal Access Token |
-| `GEMINI_API_KEY` | Google Gemini API key |
-| `GEMINI_MODEL` | Gemini model (default: gemini-2.0-flash) |
+| `DEVIN_PATH` | Path to Devin CLI executable |
+| `DEVIN_PERMISSION_MODE` | Devin permission mode (default: dangerous) |
+| `DEVIN_MODEL` | Devin model selection (optional) |
+| `GEMINI_PATH` | Path to Gemini CLI executable |
+| `GOOGLE_API_KEY` | Google API key for Gemini |
+| `OLLAMA_PATH` | Path to Ollama CLI executable |
+| `OLLAMA_MODEL` | Ollama model (default: qwen2.5-coder:1.5b) |
+| `OLLAMA_HOST` | Ollama host URL (default: http://localhost:11434) |
+| `OLLAMA_ONLY` | Force Ollama-only mode (default: false) |
 | `FLASK_SOCKET_URL` | Flask Socket.IO URL |
 
 The worker automatically loads these when started.
+
+### Finding Agent Paths
+
+To find the paths for Devin and Gemini CLIs:
+
+```bash
+# Find Devin path
+which devin
+
+# Find Gemini path
+which gemini
+
+# Find Ollama path
+which ollama
+```
+
+Add these paths to your `.env.agent_orchestration` file.
 
 ---
 

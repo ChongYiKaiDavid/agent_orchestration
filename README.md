@@ -13,8 +13,9 @@ The system consists of four main components:
 
 ## Features
 
-- 🤖 **Multi-Agent Support** - Gemini, Ollama, and other AI agents
-- 📋 **Configurable Pipelines** - Define custom workflows (plan → code → review, code-only, etc.)
+- 🤖 **Multi-Agent Support** - Devin, Gemini, and Ollama AI agents
+- 🎯 **Auto-Selection** - Automatically selects optimal agent per stage based on task complexity
+- 📋 **Configurable Pipelines** - Define custom workflows (plan → code → review, code-only)
 - 🔗 **Git Integration** - Clone repositories, make real code changes, create PRs on GitHub/Bitbucket
 - 🎫 **Jira Integration** - Link tasks to Jira tickets with automatic commit message formatting
 - 📡 **Real-time Logs** - Live terminal streaming via Socket.IO and native terminal window spawning
@@ -56,13 +57,19 @@ agent_orchestration/
 │   └── main.tsx
 ├── server/                       # Backend Node.js
 │   ├── agents/                   # AI agent implementations
+│   │   ├── devin.js
 │   │   ├── gemini.js
 │   │   └── ollama.js
 │   ├── pipelines/                # Pipeline YAML configs
-│   │   ├── gemini-code-only.yaml
-│   │   └── ollama-code-only.yaml
+│   │   ├── code-only.yaml
+│   │   └── plan-code-review.yaml
+│   ├── skills/                   # Agent skill configurations
+│   │   ├── planner/agent.yaml
+│   │   ├── coder/agent.yaml
+│   │   └── reviewer/agent.yaml
 │   ├── workspaces/               # Temporary task workspaces
 │   ├── engine.js                 # Core task processing logic
+│   ├── auto-selector.js          # Agent and pipeline auto-selection
 │   ├── index.js                  # Express API server
 │   ├── worker.js                 # Background worker
 │   ├── db.js                     # SQLite database
@@ -139,14 +146,35 @@ BITBUCKET_HTTPS_TOKEN=your-https-token
 GITHUB_TOKEN=ghp_your-personal-access-token
 
 # AI Agents
-GEMINI_API_KEY=your-gemini-api-key
-GEMINI_MODEL=gemini-2.0-flash
+DEVIN_PATH=/path/to/devin
+DEVIN_PERMISSION_MODE=dangerous
+DEVIN_MODEL=optional_model_name
+
+GEMINI_PATH=/path/to/gemini
+GOOGLE_API_KEY=your-google-api-key
+
+OLLAMA_PATH=/path/to/ollama
 OLLAMA_MODEL=qwen2.5-coder:1.5b
 OLLAMA_HOST=http://localhost:11434
+OLLAMA_ONLY=false
 
 # Flask Socket.IO URL (if different from default)
 FLASK_SOCKET_URL=http://localhost:5002
 ```
+
+### Agent Auto-Selection
+
+The system automatically selects the optimal agent for each pipeline stage based on:
+- **Task complexity** (high, medium, low)
+- **Stage type** (planning, coding, reviewing)
+- **Environment variables** (e.g., OLLAMA_ONLY forces Ollama)
+
+**Selection Logic:**
+- **Planning**: Gemini for speed, Devin for high complexity
+- **Coding**: Devin for medium/high complexity, Gemini for low complexity
+- **Reviewing**: Gemini for speed
+
+You don't need to specify agents in pipeline configurations - the system handles this automatically.
 
 ## Available Scripts
 

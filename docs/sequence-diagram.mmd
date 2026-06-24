@@ -1,0 +1,66 @@
+sequenceDiagram
+    participant User as User (React UI)
+    participant API as Flask API
+    participant Queue as Work Queue
+    participant Worker as Worker Thread
+    participant Executor as Pipeline Executor
+    participant Runner as Agent Runner
+    participant Agent as Devin Agent
+
+    User->>API: 1. Create Task
+    API->>API: 2. Create task.md + insert into queue
+    API->>Queue: Insert task
+    Queue->>Worker: 3. Background worker polls queue
+    Worker->>Worker: 4. Claim task (queued → claimed)
+    Worker->>Executor: 5. Load pipeline.yaml<br/>Auto-select agent
+
+    Note over Executor,Agent: STAGE 1: PLANNER
+    Executor->>Runner: 6. Call agent_runner (planner)
+    Runner->>Runner: 7. Load skills/planner/agent.yaml
+    Runner->>Runner: 8. Build prompt + read files
+    Runner->>Agent: 9. Execute agent
+    Agent->>Agent: Reads: task.md
+    Agent->>Agent: Writes: planner.requirements.md<br/>planner.design.md
+    Agent->>Agent: Prints: <<<PLANNER_COMPLETE>>>
+    Agent-->>Runner: Completion token
+    Runner->>Runner: 10. Detect completion token<br/>Create .done file<br/>Kill process
+    Runner-->>Executor: Stage complete
+    Executor->>Executor: 11. Move to next stage
+
+    Note over Executor,Agent: STAGE 2: CODER
+    Executor->>Runner: 12. Call agent_runner (coder)
+    Runner->>Runner: 13. Load skills/coder/agent.yaml
+    Runner->>Runner: 14. Build prompt (includes planner outputs)
+    Runner->>Agent: 15. Execute agent
+    Agent->>Agent: Reads: task.md, planner docs
+    Agent->>Agent: Writes: source code files
+    Agent->>Agent: Prints: <<<CODER_COMPLETE>>>
+    Agent-->>Runner: Completion token
+    Runner->>Runner: 16. Detect completion<br/>.done → kill process
+    Runner-->>Executor: Stage complete
+    Executor->>Executor: 17. Post-stage: generate coder.diff
+
+    Note over Executor,Agent: STAGE 3: REVIEWER
+    Executor->>Runner: 18. Call agent_runner (reviewer)
+    Runner->>Runner: 19. Load skills/reviewer/agent.yaml
+    Runner->>Agent: 20. Execute agent
+    Agent->>Agent: Reads: task.md, planner docs, coder.diff
+    Agent->>Agent: Writes: reviewer.review.md
+    Agent->>Agent: Prints: <<<REVIEWER_COMPLETE>>>
+    Agent-->>Runner: Completion token
+    Runner-->>Executor: Stage complete
+    Executor->>Executor: 22. Extract verdict from reviewer.review.md
+
+    Note over Executor: VERDICT-BASED ROUTING
+    par GO
+        Executor->>Executor: 23. Run hooks<br/>- git commit<br/>- git push<br/>- create PR
+        Executor->>Executor: Task → done
+    and FAIL
+        Executor->>Executor: 24. Route back → CODER<br/>Retry coding stage
+        Executor->>Executor: Requeued (retry from coding)
+    and SPEC_FAIL
+        Executor->>Executor: 25. Route back → PLANNER<br/>Retry planning stage
+        Executor->>Executor: Requeued (retry from planning)
+    and ESCALATE
+        Executor->>Executor: 26. Pause task for human<br/>Status → escalated
+    end
