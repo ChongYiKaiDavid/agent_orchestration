@@ -13,7 +13,7 @@ The system consists of four main components:
 
 ## Features
 
-- 🤖 **Multi-Agent Support** - Devin, Gemini, and Ollama AI agents
+- 🤖 **Multi-Agent Support** - Devin, and Ollama AI agents
 - 🎯 **Auto-Selection** - Automatically selects optimal agent per stage based on task complexity
 - 📋 **Configurable Pipelines** - Define custom workflows (plan → code → review, code-only)
 - 🔗 **Git Integration** - Clone repositories, make real code changes, create PRs on GitHub/Bitbucket
@@ -58,7 +58,6 @@ agent_orchestration/
 ├── server/                       # Backend Node.js
 │   ├── agents/                   # AI agent implementations
 │   │   ├── devin.js
-│   │   ├── gemini.js
 │   │   └── ollama.js
 │   ├── pipelines/                # Pipeline YAML configs
 │   │   ├── code-only.yaml

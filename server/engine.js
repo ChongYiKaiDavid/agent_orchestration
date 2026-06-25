@@ -6,7 +6,6 @@ import os from 'os';
 import db from './db.js';
 import { getPipeline, listPipelines, getPipelineSync, listPipelinesSync } from './pipelines.js';
 import { runDevinStage, buildStagePrompt as buildDevinStagePrompt } from './agents/devin.js';
-import { runGeminiStage, buildStagePrompt as buildGeminiStagePrompt } from './agents/gemini.js';
 import { runOllamaStage, buildStagePrompt as buildOllamaStagePrompt } from './agents/ollama.js';
 import { listAgents } from './agents.js';
 import { autoSelectPipelineAndAgent, autoSelectAgentForStage } from './auto-selector.js';
@@ -694,9 +693,7 @@ export async function processTask(task) {
     let result;
 
     // Use the correct prompt builder based on auto-selected agent
-    if (selectedAgent === 'gemini') {
-      prompt = buildGeminiStagePrompt(stage, task, previousOutputs, repositoryPath);
-    } else if (selectedAgent === 'ollama') {
+    if (selectedAgent === 'ollama') {
       prompt = buildOllamaStagePrompt(stage, task, previousOutputs, repositoryPath);
     } else {
       // devin and other agents
@@ -765,7 +762,7 @@ export async function processTask(task) {
     const stageLogId = stage.id;
 
     // Agent fallback: if the first choice fails, try alternatives for this stage.
-    const fallbackAgents = ['devin', 'gemini', 'ollama'];
+    const fallbackAgents = ['devin', 'ollama'];
     const fallbackOrder = [...new Set([selectedAgent, ...fallbackAgents])];
     const tried = new Set();
 
@@ -777,15 +774,7 @@ export async function processTask(task) {
 
 
       try {
-        if (agent === 'gemini') {
-          result = await runGeminiStage({
-            prompt,
-            stageId: stage.id,
-            workspace: stageFolder,
-            onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
-            onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
-          });
-        } else if (agent === 'ollama') {
+        if (agent === 'ollama') {
           result = await runOllamaStage({
             prompt,
             stageId: stage.id,

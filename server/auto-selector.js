@@ -7,12 +7,6 @@ const AGENT_CAPABILITIES = {
     speed: 'medium',
     bestFor: ['full implementation', 'complex refactoring', 'multi-file changes', 'detailed coding tasks'],
   },
-  gemini: {
-    strengths: ['planning', 'documentation', 'analysis', 'research', 'review', 'design', 'summarization', 'understanding'],
-    complexity: 'medium',
-    speed: 'fast',
-    bestFor: ['quick planning', 'document generation', 'code analysis', 'research tasks', 'initial drafts'],
-  },
 };
 
 const COMPLEXITY_PATTERNS = {
@@ -67,14 +61,14 @@ function selectBestAgent(taskType, complexity, keywords) {
     return 'ollama';
   }
 
-  // For planning tasks, prefer Gemini
+  // For planning tasks, prefer devin
   if (taskType === 'planning') {
-    return 'gemini';
+    return 'devin';
   }
 
-  // For docs-only tasks, prefer Gemini
+  // For docs-only tasks, prefer devin
   if (taskType === 'docs') {
-    return 'gemini';
+    return 'devin';
   }
 
   // For high complexity coding, prefer Devin
@@ -82,9 +76,9 @@ function selectBestAgent(taskType, complexity, keywords) {
     return 'devin';
   }
 
-  // For review tasks, prefer Gemini (faster)
+  // For review tasks, prefer devin (faster)
   if (taskType === 'review') {
-    return 'gemini';
+    return 'devin';
   }
 
   // Default to Devin for coding tasks
@@ -195,10 +189,10 @@ export function autoSelectAgentForStage(stageId, task) {
     if (complexity === 'high' || complexity === 'medium') {
       return 'devin';
     }
-    return 'gemini';
+    return 'devin';
   } else if (stageId === 'reviewing') {
     // For reviewing, prefer Gemini for speed
-    return 'gemini';
+    return 'devin';
   }
   
   // Default to Devin
@@ -208,7 +202,6 @@ export function autoSelectAgentForStage(stageId, task) {
 function buildReasoningText(taskType, complexity, agent, pipeline) {
   const agents = {
     devin: 'Devin (better for complex coding)',
-    gemini: 'Gemini (faster for planning/reviews)',
     ollama: 'Ollama (local AI)',
   };
   
