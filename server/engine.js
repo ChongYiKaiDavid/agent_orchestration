@@ -765,13 +765,8 @@ export async function processTask(task) {
     const stageLogId = stage.id;
 
     // Agent fallback: if the first choice fails, try alternatives for this stage.
-    const stageFallbacks = {
-      planning: ['gemini', 'devin', 'ollama'],
-      coding: ['devin', 'gemini', 'ollama'],
-      reviewing: ['gemini', 'devin', 'ollama'],
-    };
-
-    const fallbackOrder = stageFallbacks[stage.id] || [selectedAgent, 'devin', 'gemini', 'ollama'];
+    const fallbackAgents = ['devin', 'gemini', 'ollama'];
+    const fallbackOrder = [...new Set([selectedAgent, ...fallbackAgents])];
     const tried = new Set();
 
     for (const agent of fallbackOrder) {
