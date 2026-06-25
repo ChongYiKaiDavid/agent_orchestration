@@ -115,6 +115,7 @@ export async function runGeminiStage({ prompt, stageId, workspace, onStdout, onS
     ...process.env,
     GEMINI_PERMISSION_MODE: process.env.GEMINI_PERMISSION_MODE || 'auto',
     GEMINI_API_KEY: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
+    GEMINI_CLI_TRUST_WORKSPACE: 'true',
   };
 
   const timeoutMs = Number(process.env.GEMINI_CLI_TIMEOUT_MS || 180000); // default 3 minutes

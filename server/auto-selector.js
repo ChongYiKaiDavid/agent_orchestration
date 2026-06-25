@@ -188,11 +188,8 @@ export function autoSelectAgentForStage(stageId, task) {
   
   // Select agent based on stage and task characteristics
   if (stageId === 'planning') {
-    // For planning, prefer Gemini for speed, but use Devin for complex tasks
-    if (complexity === 'high') {
-      return 'devin';
-    }
-    return 'gemini';
+    // For planning, prefer Devin to avoid Gemini account issues.
+    return 'devin';
   } else if (stageId === 'coding') {
     // For coding, prefer Devin for complex tasks, Gemini for simple ones
     if (complexity === 'high' || complexity === 'medium') {
