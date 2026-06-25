@@ -117,6 +117,11 @@ def broadcast_notification():
     return {"success": True}
 
 
+@app.route("/")
+def index():
+    """A simple health-check endpoint."""
+    return "Flask-SocketIO server is running."
+
 
 def _spawn_shell():
     """Spawn an interactive shell in a PTY."""

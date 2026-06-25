@@ -3,3 +3,4 @@ flask-socketio==5.2.0
 python-socketio==5.11.4
 gevent>=20.9.0
 gevent-websocket>=0.10.1
+python-dotenv
