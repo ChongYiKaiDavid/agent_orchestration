@@ -271,7 +271,7 @@ export async function runOllamaStage({ prompt, stageId, workspace, onStdout, onS
                 } catch (e) {
                   // Process may already be dead
                 }
-              }, 500);
+              }, 3000);
             }
           }
         }
