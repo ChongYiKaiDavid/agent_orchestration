@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { fetchTasks, fetchTaskExecutions, deleteTask, fetchPipeline } from '../api';
+import { fetchTasks, fetchTaskExecutions, deleteTask, fetchPipeline, fetchJiraIssues, createTaskFromJira } from '../api';
 import PipelineVisualization from '../components/PipelineVisualization';
 
 
@@ -17,6 +17,10 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
   const [selectedTask, setSelectedTask] = useState<any | null>(null);
   const [executionDetails, setExecutionDetails] = useState<any | null>(null);
   const [pipelineDefinition, setPipelineDefinition] = useState<any | null>(null);
+  const [jiraIssues, setJiraIssues] = useState<any[]>([]);
+  const [jiraError, setJiraError] = useState<string | null>(null);
+  const [jiraSending, setJiraSending] = useState<Record<string, boolean>>({});
+  const [jiraSent, setJiraSent] = useState<Record<string, boolean>>({});
 
   const lifecycleStages = [
     { id: 'plan', label: 'Planning', color: 'var(--accent-blue)' },
@@ -38,6 +42,12 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
     loadTasks();
     const interval = setInterval(loadTasks, 3000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    fetchJiraIssues({ statuses: 'new,indeterminate' })
+      .then(setJiraIssues)
+      .catch((err: Error) => setJiraError(err.message));
   }, []);
 
   useEffect(() => {
@@ -229,8 +239,46 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
         </div>
       </div>
 
-      {selectedTask && (
+      <div className="dashboard-jira-panel">
+        <h2 className="dashboard-jira-title">Jira Issues</h2>
+        {jiraError ? (
+          <div className="dashboard-jira-error">{jiraError}</div>
+        ) : jiraIssues.length === 0 ? (
+          <div className="dashboard-jira-empty">No open Jira issues found.</div>
+        ) : (
+          <div className="dashboard-jira-list">
+            {jiraIssues.map((issue) => (
+              <div key={issue.key} className="dashboard-jira-card">
+                <div className="dashboard-jira-card-header">
+                  <a href={issue.url} target="_blank" rel="noreferrer" className="dashboard-jira-key">{issue.key}</a>
+                  <span className={`dashboard-jira-status dashboard-jira-status--${issue.statusCategory}`}>{issue.status}</span>
+                  {issue.priority && <span className="dashboard-jira-priority">{issue.priority}</span>}
+                </div>
+                <div className="dashboard-jira-summary">{issue.summary}</div>
+                {issue.assignee && <div className="dashboard-jira-assignee">Assigned: {issue.assignee}</div>}
+                <button
+                  className="dashboard-jira-send-btn"
+                  disabled={jiraSending[issue.key] || jiraSent[issue.key]}
+                  onClick={async () => {
+                    setJiraSending((prev) => ({ ...prev, [issue.key]: true }));
+                    try {
+                      await createTaskFromJira({ summary: issue.summary, key: issue.key, priority: issue.priority?.toLowerCase() });
+                      setJiraSent((prev) => ({ ...prev, [issue.key]: true }));
+                      fetchTasks().then(setTasks).catch(() => {});
+                    } finally {
+                      setJiraSending((prev) => ({ ...prev, [issue.key]: false }));
+                    }
+                  }}
+                >
+                  {jiraSent[issue.key] ? '✓ Sent to agent' : jiraSending[issue.key] ? 'Sending…' : 'Send to agent'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
+      {selectedTask && (
         <div className="dashboard-selected-task">
         <div className="dashboard-selected-task-header" style={{ position: 'relative' }}>
             <h2>{selectedTask.title}</h2>

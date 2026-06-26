@@ -73,3 +73,27 @@ export async function deleteTask(taskId: string) {
   return parseJson(response);
 }
 
+export async function fetchJiraIssues(params: { statuses?: string; project?: string; maxResults?: number } = {}) {
+  const query = new URLSearchParams();
+  if (params.statuses) query.set('statuses', params.statuses);
+  if (params.project) query.set('project', params.project);
+  if (params.maxResults) query.set('maxResults', String(params.maxResults));
+  const response = await fetch(`/api/jira/issues?${query}`);
+  return parseJson(response);
+}
+
+export async function createTaskFromJira(issue: {
+  summary: string;
+  description?: string;
+  key?: string;
+  priority?: string;
+  repository?: string;
+}) {
+  const response = await fetch('/api/tasks/from-jira', {
+    method: 'POST',
+    headers: defaultHeaders,
+    body: JSON.stringify(issue),
+  });
+  return parseJson(response);
+}
+

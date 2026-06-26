@@ -375,4 +375,59 @@ router.get('/tasks/:id/test-framework', (req, res) => {
   }
 });
 
+// Jira issues proxy — fetches open issues from the configured Jira project
+router.get('/jira/issues', async (req, res) => {
+  const baseUrl = (() => {
+    const raw = process.env.JIRA_BASE_URL || '';
+    try { return new URL(raw).origin; } catch { return raw.replace(/\/$/, ''); }
+  })();
+  const user = process.env.JIRA_USER;
+  const token = process.env.JIRA_API_TOKEN;
+
+  if (!baseUrl || !user || !token) {
+    return res.status(503).json({ error: 'Jira credentials not configured. Set JIRA_BASE_URL, JIRA_USER, and JIRA_API_TOKEN.' });
+  }
+
+  const { statuses = 'new,indeterminate', maxResults = 50, project } = req.query;
+
+  // Build JQL — filter by project if provided, otherwise fetch all non-done issues
+  const statusList = String(statuses).split(',').map(s => `"${s.trim()}"`).join(',');
+  let jql = `statusCategory in (${statusList}) ORDER BY updated DESC`;
+  if (project) {
+    jql = `project = "${project}" AND ${jql}`;
+  }
+
+  const url = `${baseUrl}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=${maxResults}&fields=summary,description,status,priority,assignee,key,issuetype`;
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${user}:${token}`).toString('base64')}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      return res.status(response.status).json({ error: `Jira API error: ${text}` });
+    }
+
+    const data = await response.json();
+    const issues = (data.issues || []).map(issue => ({
+      key: issue.key,
+      summary: issue.fields.summary,
+      status: issue.fields.status?.name,
+      statusCategory: issue.fields.status?.statusCategory?.key,
+      priority: issue.fields.priority?.name,
+      assignee: issue.fields.assignee?.displayName || null,
+      issueType: issue.fields.issuetype?.name,
+      url: `${baseUrl}/browse/${issue.key}`,
+    }));
+
+    res.json(issues);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
