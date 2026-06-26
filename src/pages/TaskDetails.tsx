@@ -14,6 +14,7 @@ interface Task {
   target_branch: string | null;
   pipeline_id: string | null;
   jira_ticket: string | null;
+  retry_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -63,6 +64,16 @@ const TaskDetails: React.FC<TaskDetailsProps> = ({ taskId, onTaskDeleted }) => {
     }
   };
 
+  const formatTaskStatus = (task: Task) => {
+    if (task.status === 'requeued' && task.retry_count > 0) {
+      return `Retrying (${task.retry_count})...`;
+    }
+    if (task.status === 'completed' && task.retry_count > 0) {
+      return `Completed after ${task.retry_count} ${task.retry_count > 1 ? 'retries' : 'retry'}`;
+    }
+    return task.status;
+  }
+
   if (!taskId) {
     return (
       <div className="text-center text-gray-400 py-12">
@@ -87,7 +98,7 @@ const TaskDetails: React.FC<TaskDetailsProps> = ({ taskId, onTaskDeleted }) => {
           <h1 className="text-2xl font-bold text-white mb-2">Task Details</h1>
           {task && (
             <div className="flex items-center gap-3 text-sm text-gray-400">
-              <span className="px-2 py-1 rounded bg-gray-800">{task.status}</span>
+              <span className="px-2 py-1 rounded bg-gray-800">{formatTaskStatus(task)}</span>
               <span className="px-2 py-1 rounded bg-gray-800">{task.priority}</span>
               {task.jira_ticket && (
                 <span className="px-2 py-1 rounded bg-blue-900/30 text-blue-400">{task.jira_ticket}</span>
@@ -114,7 +125,7 @@ const TaskDetails: React.FC<TaskDetailsProps> = ({ taskId, onTaskDeleted }) => {
             </div>
             <div>
               <div className="text-sm text-gray-400 mb-1">Status</div>
-              <div className="text-white capitalize">{task.status}</div>
+              <div className="text-white capitalize">{formatTaskStatus(task)}</div>
             </div>
             <div>
               <div className="text-sm text-gray-400 mb-1">Priority</div>

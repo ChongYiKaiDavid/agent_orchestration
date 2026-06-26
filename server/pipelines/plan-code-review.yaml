@@ -21,3 +21,6 @@ stages:
     summary: "Review the implementation and produce a verdict."
     outputFiles:
       - reviewer.review.md
+  - id: create_pr
+    name: "Create PR"
+    summary: "Creates a pull request on github."

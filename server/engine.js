@@ -516,7 +516,7 @@ export function getPullRequestForExecution(executionId) {
 }
 export function claimQueuedTask() {
   const tx = db.transaction(() => {
-    const task = db.prepare('SELECT * FROM tasks WHERE status = ? ORDER BY created_at ASC LIMIT 1').get('queued');
+    const task = db.prepare('SELECT * FROM tasks WHERE status IN (?, ?) ORDER BY created_at ASC LIMIT 1').get('queued', 'requeued');
     if (!task) {
       return null;
     }
@@ -688,6 +688,11 @@ export async function processTask(task) {
     // Auto-select agent for this stage based on task characteristics
     const selectedAgent = autoSelectAgentForStage(stage.id, task);
     console.log(`[processTask] Stage '${stage.id}' auto-selected agent: ${selectedAgent}`);
+    
+    if (stage.id === 'create_pr') {
+      await createPullRequest(task, executionId, repositoryPath, finalVerdict);
+      continue;
+    }
     
     let prompt;
     let result;
@@ -889,15 +894,15 @@ export async function processTask(task) {
             retryStage = null;
           } else if (finalVerdict === 'SPEC_FAIL') {
             // Specification failed - route back to PLANNER
-            nextStatus = 'queued';
+            nextStatus = 'requeued';
             retryStage = 'planning';
           } else if (finalVerdict === 'FAIL') {
             // Implementation failed - route back to CODER
-            nextStatus = 'queued';
+            nextStatus = 'requeued';
             retryStage = 'coding';
           } else {
             // Default to queued for unknown verdicts
-            nextStatus = 'queued';
+            nextStatus = 'requeued';
             retryStage = 'coding';
           }
           
@@ -1251,7 +1256,312 @@ export async function processTask(task) {
     });
   }
 }
+
+async function createPullRequest(task, executionId, repositoryPath, finalVerdict) {
+  if (finalVerdict === 'GO' || !finalVerdict) {
+    let prUrl = `https://example.com/${task.repository || 'repo'}/pull/unknown`;
+    let prNumber = `branch-task-${task.id.slice(0, 8)}`;
+    if (repositoryPath) {
+      try {
+        const branchName = `task-${task.id.slice(0, 8)}`;
+
+        // Check if there are changes
+        const statusResult = spawnSync('git', ['status', '--porcelain'], { cwd: repositoryPath, encoding: 'utf8' });
+        const porcelain = statusResult.stdout ? statusResult.stdout.trim() : '';
+        console.log('[processTask] git status --porcelain (changed? ' + (porcelain ? 'yes' : 'no') + ')');
+        if (!porcelain) {
+          console.log('[processTask] porcelain empty; last artifacts may be documentation-only.');
+        }
+
+        if (porcelain) {
+
+          // Configure remote with HTTPS credentials for push
+          // (Bitbucket + GitHub)
+          const bitbucketToken = process.env.BITBUCKET_HTTPS_TOKEN;
+          const bitbucketUser = process.env.BITBUCKET_USERNAME;
+          if (bitbucketToken && bitbucketUser && task.repository) {
+            const httpsMatch = task.repository.match(/^https:\\/\\/(?:www\\.)?bitbucket\\.org\\/([^/]+)\\/([^/]+?)(\\.git)?$/i);
+            const sshMatch = task.repository.match(/^git@bitbucket\\.org:([^/]+)\\/([^/]+?)(\\.git)?$/i);
+            let workspace, repoName;
+            if (httpsMatch) {
+              workspace = httpsMatch[1];
+              repoName = httpsMatch[2];
+            } else if (sshMatch) {
+              workspace = sshMatch[1];
+              repoName = sshMatch[2];
+            }
+            if (workspace && repoName) {
+              const remoteUrl = `https://${encodeURIComponent(bitbucketUser)}:${encodeURIComponent(bitbucketToken)}@bitbucket.org/${workspace}/${repoName}.git`;
+              spawnSync('git', ['remote', 'set-url', 'origin', remoteUrl], { cwd: repositoryPath });
+            }
+          }
+
+          const githubToken = process.env.GITHUB_TOKEN;
+          if (githubToken && task.repository) {
+            const gh = parseGitHubRepo(task.repository);
+            if (gh) {
+              const remoteUrl = buildGitHubAuthenticatedHttpsUrl(gh, githubToken);
+              if (remoteUrl) {
+                spawnSync('git', ['remote', 'set-url', 'origin', remoteUrl], { cwd: repositoryPath });
+              }
+            }
+          }
+
+
+          spawnSync('git', ['checkout', '-b', branchName], { cwd: repositoryPath });
+          spawnSync('git', ['add', '.'], { cwd: repositoryPath });
+          const commitMessage = task.jira_ticket ? `${task.jira_ticket} ${task.title}` : task.title;
+          spawnSync('git', ['commit', '-m', commitMessage], { cwd: repositoryPath });
+
+          // Rebase-before-push guardrail with conflict resolution
+          if (task.target_branch) {
+            console.log(`[processTask] Attempting rebase-before-push to ${task.target_branch}`);
+            const rebaseResult = await attemptRebaseWithResolution(repositoryPath, task.target_branch, task.id);
+
+            if (rebaseResult.success) {
+              console.log(`[processTask] Rebase-before-push successful${rebaseResult.conflicts ? ' with conflict resolution' : ''}`);
+              if (rebaseResult.conflicts) {
+                recordActivity({
+                  taskId: task.id,
+                  event_type: 'conflict_resolved',
+                  message: `Rebase conflicts resolved automatically (${rebaseResult.resolved} file(s))`,
+                  details: JSON.stringify(rebaseResult),
+                });
+              }
+            } else if (rebaseResult.manualTask) {
+              console.log(`[processTask] Rebase conflicts require manual resolution. Created task: ${rebaseResult.manualTask}`);
+              recordActivity({
+                taskId: task.id,
+                event_type: 'conflict_manual',
+                message: 'Rebase conflicts require manual resolution. Created separate task.',
+                details: JSON.stringify({ manualTask: rebaseResult.manualTask, failedFiles: rebaseResult.failedFiles }),
+              });
+              // Skip push for this task since manual resolution is needed
+              db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run('conflict_resolution', now(), task.id);
+              return;
+            } else {
+              console.warn(`[processTask] Rebase-before-push failed: ${rebaseResult.error}. Proceeding with push anyway.`);
+              recordActivity({
+                taskId: task.id,
+                event_type: 'rebase_failed',
+                message: `Rebase-before-push failed: ${rebaseResult.error}. Proceeding with push.`,
+                details: JSON.stringify(rebaseResult),
+              });
+            }
+          }
+
+          // Push using credentials configured above
+          const pushResult = spawnSync('git', ['push', '-u', 'origin', branchName], { cwd: repositoryPath, encoding: 'utf8' });
+
+
+          if (pushResult.status === 0) {
+            prNumber = branchName;
+            // Create actual pull request via Bitbucket API (reuse token from clone)
+            if (process.env.BITBUCKET_HTTPS_TOKEN && bitbucketUser && task.repository) {
+              const httpsMatch = task.repository.match(/^https:\\/\\/(?:www\\.)?bitbucket\\.org\\/([^/]+)\\/([^/]+?)(\\.git)?$/i);
+              const sshMatch = task.repository.match(/^git@bitbucket\\.org:([^/]+)\\/([^/]+?)(\\.git)?$/i);
+              let workspace, repoName;
+              if (httpsMatch) { workspace = httpsMatch[1]; repoName = httpsMatch[2]; }
+              else if (sshMatch) { workspace = sshMatch[1]; repoName = sshMatch[2]; }
+              if (workspace && repoName) {
+                try {
+                  // Only attempt PR creation if we actually have a token for API auth
+                  const bitbucketApiToken = process.env.BITBUCKET_HTTPS_TOKEN || process.env.BITBUCKET_TOKEN;
+                  if (!bitbucketApiToken) {
+                    throw new Error('Missing BITBUCKET_HTTPS_TOKEN / BITBUCKET_TOKEN for Bitbucket PR API auth');
+                  }
+
+                  const prApiUrl = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repoName}/pullrequests`;
+                  const prTitle = task.jira_ticket ? `${task.jira_ticket} ${task.title}` : (task.title || `Agent update: ${branchName}`);
+                  const prDesc = `Created by AI agent orchestration for task: ${task.id}\\n\\nTask: ${task.title}\\nBranch: ${branchName}`;
+                  const prResp = await fetch(prApiUrl, {
+                    method: 'POST',
+                    headers: {
+                      'Authorization': `Basic ${Buffer.from(`${bitbucketUser}:${bitbucketApiToken}`).toString('base64')}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      title: prTitle,
+                      description: prDesc,
+                      source: { branch: { name: branchName } },
+                      destination: { branch: { name: 'main' } },
+                    }),
+                  });
+                  if (prResp.ok) {
+                    const prData = await prResp.json();
+                    prNumber = prData.id || branchName;
+                    prUrl = prData.links?.html?.href || prUrl;
+                    console.log('[createPullRequest] PR created:', prNumber, prUrl);
+                  } else {
+                    const errText = await prResp.text();
+                    console.error('[createPullRequest] API error:', prResp.status, errText);
+                  }
+                } catch (e) {
+                  console.error('[createPullRequest] failed:', e.message);
+                }
+              }
+            }
+            prUrl = task.repository ? task.repository.replace('.git', '') + `/tree/${branchName}` : prUrl;
+
+            // Real GitHub or Bitbucket PR Creation
+            const githubToken = process.env.GITHUB_TOKEN;
+            const repoMatch = task.repository ? task.repository.match(/(?:https:\\/\\/github\\.com\\/|git@github\\.com:)([^/]+)\\/([^.]+)(?:\\.git)?/) : null;
+
+            const bitbucketUsername = process.env.BITBUCKET_USERNAME;
+            const bitbucketAppPassword = process.env.BITBUCKET_APP_PASSWORD;
+            const bitbucketToken = process.env.BITBUCKET_HTTPS_TOKEN || process.env.BITBUCKET_TOKEN;
+            const bitbucketMatch = task.repository ? task.repository.match(/(?:https:\\/\\/(?:[^@]+@)?bitbucket\\.org\\/|git@bitbucket\\.org:)([^/]+)\\/([^.]+)(?:\\.git)?/) : null;
+
+            if (githubToken && repoMatch) {
+              const owner = repoMatch[1];
+              const repoName = repoMatch[2].replace(/\\.git$/, '');
+
+              console.log(`[processTask] Creating GitHub PR for ${owner}/${repoName}...`);
+
+              const prTitle = task.jira_ticket ? `${task.jira_ticket} ${task.title}` : task.title;
+
+              const prResponse = await fetch(`https://api.github.com/repos/${owner}/${repoName}/pulls`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${githubToken}`,
+                  'Accept': 'application/vnd.github.v3+json',
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  title: prTitle,
+                  body: `Automated PR generated by agent for task: ${task.title}\\n\\nTask Description:\\n${task.description || 'No description provided.'}`,
+                  head: branchName,
+                  base: task.target_branch || 'main'
+                })
+              });
+
+              if (prResponse.ok) {
+                const prData = await prResponse.json();
+                prUrl = prData.html_url;
+                prNumber = prData.number.toString();
+                console.log(`[processTask] PR created successfully: ${prUrl}`);
+              } else {
+                const errorData = await prResponse.text();
+                console.error(`[processTask] GitHub API failed to create PR: ${prResponse.status} ${errorData}`);
+              }
+            } else if (bitbucketMatch) {
+              const workspace = bitbucketMatch[1];
+              const repoSlug = bitbucketMatch[2].replace(/\\.git$/, '');
+
+              console.log(`[processTask] Creating Bitbucket PR for ${workspace}/${repoSlug}...`);
+
+              // Try multiple auth methods in order
+              const authMethods = [];
+
+              if (process.env.BITBUCKET_HTTPS_TOKEN) {
+                authMethods.push({ name: 'BITBUCKET_HTTPS_TOKEN', header: `Bearer ${process.env.BITBUCKET_HTTPS_TOKEN}` });
+              }
+              if (process.env.BITBUCKET_TOKEN) {
+                authMethods.push({ name: 'BITBUCKET_TOKEN', header: `Bearer ${process.env.BITBUCKET_TOKEN}` });
+              }
+              if (bitbucketUsername && bitbucketAppPassword) {
+                authMethods.push({ name: 'BITBUCKET_APP_PASSWORD', header: `Basic ${Buffer.from(`${bitbucketUsername}:${bitbucketAppPassword}`).toString('base64')}` });
+              }
+
+              let prResponse = null;
+              let lastError = null;
+
+              for (const authMethod of authMethods) {
+                console.log(`[processTask] Trying Bitbucket PR with ${authMethod.name}...`);
+
+                const prTitle = task.jira_ticket ? `${task.jira_ticket} ${task.title}` : task.title;
+
+                prResponse = await fetch(`https://api.bitbucket.org/2.0/repositories/${workspace}/${repoSlug}/pullrequests`, {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': authMethod.header,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({
+                    title: prTitle,
+                    description: `Automated PR generated by agent for task: ${task.title}\\n\\nTask Description:\\n${task.description || 'No description provided.'}`,
+                    source: {
+                      branch: { name: branchName }
+                    },
+                    destination: {
+                      branch: { name: task.target_branch || 'main' }
+                    }
+                  })
+                });
+
+                if (prResponse.ok) {
+                  break;
+                } else {
+                  lastError = `${prResponse.status} ${await prResponse.text()}`;
+                  console.error(`[processTask] Bitbucket API failed with ${authMethod.name}: ${lastError}`);
+                }
+              }
+
+              if (prResponse && prResponse.ok) {
+                const prData = await prResponse.json();
+                prUrl = prData.links.html.href;
+                prNumber = prData.id.toString();
+                console.log(`[processTask] PR created successfully: ${prUrl}`);
+
+                createNotification({
+                  userId: null,
+                  taskId: task.id,
+                  type: 'pr_created',
+                  title: 'Pull Request Created',
+                  message: `Pull request created for task "${task.title}"`,
+                  data: { prUrl, prNumber }
+                });
+              } else {
+                console.error(`[processTask] Bitbucket API failed to create PR with all auth methods. Last error: ${lastError}`);
+              }
+            } else {
+              console.log('[processTask] Skipping real PR creation: missing provider token/credentials or not a supported repository.');
+              console.log('[processTask] PR creds debug:', {
+                BITBUCKET_USERNAME: process.env.BITBUCKET_USERNAME ? '***' : null,
+                BITBUCKET_HTTPS_TOKEN: process.env.BITBUCKET_HTTPS_TOKEN ? '***' : null,
+                BITBUCKET_TOKEN: process.env.BITBUCKET_TOKEN ? '***' : null,
+                BITBUCKET_APP_PASSWORD: process.env.BITBUCKET_APP_PASSWORD ? '***' : null,
+                GITHUB_TOKEN: process.env.GITHUB_TOKEN ? '***' : null,
+                repo: task.repository || null,
+              });
+            }
+          } else {
+            console.error(`Git push failed: ${pushResult.stderr}`);
+          }
+        } else {
+          console.log('No changes detected by agent, skipping push.');
+        }
+      } catch (e) {
+        console.error('Git PR operations failed', e);
+      }
+    }
+    const prId = crypto.randomUUID();
+    db.prepare(`
+        INSERT INTO pull_requests (id, execution_id, repo, pr_number, url, status)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(prId, executionId, task.repository || 'unknown', prNumber, prUrl, 'open');
+    db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run('pr_created', now(), task.id);
+    recordActivity({
+      taskId: task.id,
+      event_type: 'pipeline_complete',
+      message: 'Task pipeline completed and changes pushed to branch.',
+      details: JSON.stringify({ prCreated: true, branch: prNumber }),
+    });
+
+    createNotification({
+      userId: null,
+      taskId: task.id,
+      type: 'task_completed',
+      title: 'Task Completed',
+      message: `Task "${task.title}" has completed successfully with PR created.`,
+      data: { prUrl, prNumber }
+    });
+  }
+}
+
 export async function getPipelineDefinitions() {
+
   return await listPipelines();
 }
 
