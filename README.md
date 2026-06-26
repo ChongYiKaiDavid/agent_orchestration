@@ -149,9 +149,6 @@ DEVIN_PATH=/path/to/devin
 DEVIN_PERMISSION_MODE=dangerous
 DEVIN_MODEL=optional_model_name
 
-GEMINI_PATH=/path/to/gemini
-GOOGLE_API_KEY=your-google-api-key
-
 OLLAMA_PATH=/path/to/ollama
 OLLAMA_MODEL=qwen2.5-coder:1.5b
 OLLAMA_HOST=http://localhost:11434
