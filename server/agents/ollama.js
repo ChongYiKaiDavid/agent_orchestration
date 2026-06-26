@@ -30,7 +30,7 @@ function getOllamaHost() {
 }
 
 function ollamaGenerate(prompt, model, onStdout, onStderr) {
-  const timeoutMs = Number(process.env.OLLAMA_HTTP_TIMEOUT_MS || 300000); // Increased to 5 minutes
+  const timeoutMs = Number(process.env.OLLAMA_HTTP_TIMEOUT_MS || 60000); // 1 minute
 
   return new Promise((resolve, reject) => {
     const host = getOllamaHost();
@@ -39,7 +39,7 @@ function ollamaGenerate(prompt, model, onStdout, onStderr) {
     const postData = JSON.stringify({
       model,
       prompt,
-      stream: false,
+      stream: true, // Enable streaming
     });
 
     const options = {
@@ -55,29 +55,49 @@ function ollamaGenerate(prompt, model, onStdout, onStderr) {
 
     const protocol = url.protocol === 'https:' ? https : http;
     const req = protocol.request(options, (res) => {
-      let data = '';
+      let buffer = '';
+      let fullResponse = '';
+      
       res.on('data', (chunk) => {
-        const text = chunk.toString();
-        data += text;
-        if (onStdout) onStdout(text);
+        buffer += chunk.toString();
+        if (onStdout) onStdout(chunk.toString());
+
+        // Process line-by-line JSON
+        let boundary = buffer.indexOf('\n');
+        while (boundary !== -1) {
+          const jsonLine = buffer.substring(0, boundary);
+          buffer = buffer.substring(boundary + 1);
+          if (jsonLine) {
+            try {
+              const parsed = JSON.parse(jsonLine);
+              if (parsed.response) {
+                fullResponse += parsed.response;
+              }
+              if (parsed.done) {
+                clearTimeout(t);
+                resolve({
+                  exitCode: 0,
+                  output: fullResponse,
+                  logs: '',
+                });
+                req.destroy(); // End the request
+                return;
+              }
+            } catch (e) {
+              if (onStderr) onStderr(`\nError parsing Ollama stream: ${e.message}\n`);
+            }
+          }
+          boundary = buffer.indexOf('\n');
+        }
       });
+
       res.on('end', () => {
         clearTimeout(t);
-        try {
-          const lastLine = data.split('\n').filter(Boolean).pop();
-          const parsed = lastLine ? JSON.parse(lastLine) : { response: data };
-          resolve({
-            exitCode: 0,
-            output: parsed.response || '',
-            logs: '',
-          });
-        } catch {
-          resolve({
-            exitCode: 0,
-            output: data,
-            logs: '',
-          });
-        }
+        resolve({
+          exitCode: 0,
+          output: fullResponse,
+          logs: '',
+        });
       });
     });
 
@@ -231,7 +251,7 @@ export async function runOllamaStage({ prompt, stageId, workspace, onStdout, onS
     let command = await getOllamaCommand();
 
     return new Promise((resolve) => {
-      const cliTimeoutMs = Number(process.env.OLLAMA_CLI_TIMEOUT_MS || 300000); // Increased to 5 minutes
+      const cliTimeoutMs = Number(process.env.OLLAMA_CLI_TIMEOUT_MS || 60000); // 1 minute
       if (process.platform === 'win32' && command.includes(' ')) {
         command = `"${command}"`;
       }
@@ -277,7 +297,7 @@ export async function runOllamaStage({ prompt, stageId, workspace, onStdout, onS
         }
       });
 
-      const timeoutMs = Number(process.env.OLLAMA_CLI_TIMEOUT_MS || 180000); // 3m
+      const timeoutMs = Number(process.env.OLLAMA_CLI_TIMEOUT_MS || 60000); // 1m
 
       const timeout = setTimeout(() => {
         console.error(`[ollama] CLI fallback timed out after ${timeoutMs}ms; killing pid=${child.pid}`);
