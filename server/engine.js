@@ -823,7 +823,6 @@ export async function processTask(task) {
 
     // Guardrail: for coding stages, require real working-tree modifications.
     // If coder reports success but git shows no changes, mark stage as failed.
-    /*
     if (stage.id === 'coding') {
       try {
         const statusResult = spawnSync('git', ['status', '--porcelain'], { cwd: repositoryPath, encoding: 'utf8' });
@@ -837,7 +836,6 @@ export async function processTask(task) {
         console.warn('[processTask] coding stage guardrail git status check failed:', e?.message || String(e));
       }
     }
-    */
 
 
 
