@@ -389,43 +389,31 @@ export function buildStagePrompt(stage, task, previousArtifacts = [], repository
       break;
 
     case 'coding':
-      lines.push('CRITICAL: Edit files by outputting them with special FILE:/---/--- markers.');
+      lines.push('You are a code generation AI. Your task is to implement the requested changes by providing the complete new content of the files that need to be modified.');
+      lines.push('You MUST use the following format to specify file changes:');
       lines.push('');
-      lines.push('For each file, use this exact format (note the two separate --- lines):');
-      lines.push('FILE: path/to/file.ext');
+      lines.push('FILE: path/to/your/file.ext');
       lines.push('---');
-      lines.push('file contents here');
+      lines.push('<<< The full and complete content of the file goes here >>>');
       lines.push('---');
       lines.push('');
-      lines.push('IMPORTANT: Generate SUBSTANTIAL, MEANINGFUL code changes.');
-      lines.push('- Do not just add placeholder text');
-      lines.push('- Implement actual functionality requested in the task');
-      lines.push('- Write complete, working code with proper syntax');
-      lines.push('- Include necessary imports, functions, and logic');
-      lines.push('- Make the changes substantial enough to be useful');
+      lines.push('You can specify multiple files by repeating the block.');
       lines.push('');
-      lines.push('Example to add a greeting function to README.md:');
-      lines.push('FILE: README.md');
+      lines.push('For example, to create a new file `src/hello.js`:');
+      lines.push('FILE: src/hello.js');
       lines.push('---');
-      lines.push('# Project README');
-      lines.push('');
-      lines.push('## Greeting Function');
-      lines.push('');
-      lines.push('```javascript');
-      lines.push('function greet(name) {');
-      lines.push('  return `Hello, ${name}! Welcome to our project.`;');
+      lines.push('function sayHello() {');
+      lines.push('  console.log("Hello, world!");');
       lines.push('}');
-      lines.push('```');
-      lines.push('');
-      lines.push('This function provides a personalized greeting message.');
       lines.push('---');
       lines.push('');
-      lines.push('Multiple files: repeat the FILE: + --- + content + --- block for each file.');
+      lines.push('IMPORTANT:');
+      lines.push('- The file content must be complete.');
+      lines.push('- Do not use placeholders or omit any part of the file.');
+      lines.push('- You must implement the functionality described in the task.');
+      lines.push('- After all file blocks, you must print <<<CODER_COMPLETE>>> on a new line.');
       lines.push('');
-      lines.push('IMPORTANT: After writing files, verify with git status (inside your head / reasoning).');
-      lines.push('');
-      lines.push('VERDICT: GO - when files are actually modified with substantial changes.');
-      lines.push('Print <<<CODER_COMPLETE>>> when finished.');
+      lines.push('Now, apply the changes for the current task.');
       break;
 
     case 'reviewing':
