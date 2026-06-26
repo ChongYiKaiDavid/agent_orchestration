@@ -243,7 +243,7 @@ export async function cloneRepository(repository, branch, destination) {
   // Check for SSH format URLs: git@bitbucket.org:workspace/repo.git
   const sshMatch = repository.match(/^git@bitbucket\.org:([^/]+)\/([^/]+?)(\.git)?$/i);
   // Check for HTTPS format URLs: https://bitbucket.org/workspace/repo.git
-  const httpsMatch = repository.match(/^https:\/\/(?:www\.)?bitbucket\.org\/([^/]+)\/([^/]+?)(\.git)?$/i);
+  const httpsMatch = repository.match(/^https:\/\/(?:www\.)?bitbucket\.org\/([^/]+)\/([^/]+?)(?:\.git)?$/i);
 
   // Only use HTTPS basic-auth if we have a real Bitbucket app password.
   // (Your earlier failure showed a placeholder password was being injected.)
@@ -1358,8 +1358,8 @@ async function createPullRequest(task, executionId, repositoryPath, finalVerdict
             prNumber = branchName;
             // Create actual pull request via Bitbucket API (reuse token from clone)
             if (process.env.BITBUCKET_HTTPS_TOKEN && bitbucketUser && task.repository) {
-              const httpsMatch = task.repository.match(/^https:\\/\\/(?:www\\.)?bitbucket\\.org\\/([^/]+)\\/([^/]+?)(\\.git)?$/i);
-              const sshMatch = task.repository.match(/^git@bitbucket\\.org:([^/]+)\\/([^/]+?)(\\.git)?$/i);
+              const httpsMatch = task.repository.match(/^https:\/\/(?:www\.)?bitbucket\.org\/([^/]+)\/([^/]+?)(\.git)?$/i);
+              const sshMatch = task.repository.match(/^git@bitbucket\.org:([^/]+)\/([^/]+?)(\.git)?$/i);
               let workspace, repoName;
               if (httpsMatch) { workspace = httpsMatch[1]; repoName = httpsMatch[2]; }
               else if (sshMatch) { workspace = sshMatch[1]; repoName = sshMatch[2]; }

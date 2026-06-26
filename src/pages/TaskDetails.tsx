@@ -31,6 +31,8 @@ const TaskDetails: React.FC<TaskDetailsProps> = ({ taskId, onTaskDeleted }) => {
   useEffect(() => {
     if (taskId) {
       fetchTask();
+      const interval = setInterval(fetchTask, 5000); // Poll every 5 seconds
+      return () => clearInterval(interval); // Cleanup on unmount
     }
   }, [taskId]);
 
