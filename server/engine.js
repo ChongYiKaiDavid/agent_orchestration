@@ -840,6 +840,12 @@ export async function processTask(task) {
     const logs = [result.logs, output].filter(Boolean).join('\n');
     const verdictMatch = output.match(/VERDICT:\s*(GO|FAIL|SPEC_FAIL|ESCALATE)/i);
     const verdict = verdictMatch ? verdictMatch[1].toUpperCase() : null;
+
+    if (stage.id === 'coding' && verdict === 'FAIL') {
+      result.exitCode = 1;
+      result.logs = [result.logs, '[guardrail] agent returned VERDICT: FAIL'].filter(Boolean).join('\n');
+    }
+
     db.prepare(`
       UPDATE stage_executions
       SET status = ?, verdict = ?, output_data = ?, logs = ?, completed_at = ?
