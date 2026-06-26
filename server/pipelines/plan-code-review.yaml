@@ -23,4 +23,5 @@ stages:
       - reviewer.review.md
   - id: create_pr
     name: "Create PR"
+    agent: devin
     summary: "Creates a pull request on github."

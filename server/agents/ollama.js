@@ -39,6 +39,7 @@ function ollamaGenerate(prompt, model, onStdout, onStderr) {
     const postData = JSON.stringify({
       model,
       prompt,
+      system: "You are a world-class software engineering AI. Your task is to follow instructions precisely and generate code as requested, using the specified format.",
       stream: true, // Enable streaming
     });
 
