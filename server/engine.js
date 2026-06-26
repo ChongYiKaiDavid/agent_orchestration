@@ -1280,8 +1280,8 @@ async function createPullRequest(task, executionId, repositoryPath, finalVerdict
           const bitbucketToken = process.env.BITBUCKET_HTTPS_TOKEN;
           const bitbucketUser = process.env.BITBUCKET_USERNAME;
           if (bitbucketToken && bitbucketUser && task.repository) {
-            const httpsMatch = task.repository.match(/^https:\\/\\/(?:www\\.)?bitbucket\\.org\\/([^/]+)\\/([^/]+?)(\\.git)?$/i);
-            const sshMatch = task.repository.match(/^git@bitbucket\\.org:([^/]+)\\/([^/]+?)(\\.git)?$/i);
+            const httpsMatch = task.repository.match(/^https:\/\/(?:www\.)?bitbucket\.org\/([^/]+)\/([^/]+?)(\.git)?$/i);
+            const sshMatch = task.repository.match(/^git@bitbucket\.org:([^/]+)\/([^/]+?)(\.git)?$/i);
             let workspace, repoName;
             if (httpsMatch) {
               workspace = httpsMatch[1];
@@ -1405,12 +1405,12 @@ async function createPullRequest(task, executionId, repositoryPath, finalVerdict
 
             // Real GitHub or Bitbucket PR Creation
             const githubToken = process.env.GITHUB_TOKEN;
-            const repoMatch = task.repository ? task.repository.match(/(?:https:\\/\\/github\\.com\\/|git@github\\.com:)([^/]+)\\/([^.]+)(?:\\.git)?/) : null;
+            const repoMatch = task.repository ? task.repository.match(/(?:https:\/\/github\.com\/|git@github\.com:)([^/]+)\/([^.]+)(?:\.git)?/) : null;
 
             const bitbucketUsername = process.env.BITBUCKET_USERNAME;
             const bitbucketAppPassword = process.env.BITBUCKET_APP_PASSWORD;
             const bitbucketToken = process.env.BITBUCKET_HTTPS_TOKEN || process.env.BITBUCKET_TOKEN;
-            const bitbucketMatch = task.repository ? task.repository.match(/(?:https:\\/\\/(?:[^@]+@)?bitbucket\\.org\\/|git@bitbucket\\.org:)([^/]+)\\/([^.]+)(?:\\.git)?/) : null;
+            const bitbucketMatch = task.repository ? task.repository.match(/(?:https:\/\/(?:[^@]+@)?bitbucket\.org\/|git@bitbucket\.org:)([^/]+)\/([^.]+)(?:\.git)?/) : null;
 
             if (githubToken && repoMatch) {
               const owner = repoMatch[1];
