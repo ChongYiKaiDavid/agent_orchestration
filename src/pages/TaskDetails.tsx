@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import PipelineVisualizer from '../components/sections/PipelineVisualizer';
 import PRTracking from '../components/sections/PRTracking';
-import TestResults from '../components/sections/TestResults';
 import { deleteTask } from '../api';
 
 interface Task {
@@ -24,153 +23,136 @@ interface TaskDetailsProps {
   onTaskDeleted?: () => void;
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  completed: '#4ade80',
+  failed: '#ff6b6b',
+  running: '#6b9eff',
+  processing: '#6b9eff',
+  queued: '#fbbf24',
+  pr_created: '#9d7fff',
+};
+
+const PRIORITY_COLORS: Record<string, string> = {
+  high: '#ff6b6b',
+  medium: '#fbbf24',
+  low: '#4ade80',
+};
+
 const TaskDetails: React.FC<TaskDetailsProps> = ({ taskId, onTaskDeleted }) => {
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (taskId) {
-      fetchTask();
-      const interval = setInterval(fetchTask, 5000); // Poll every 5 seconds
-      return () => clearInterval(interval); // Cleanup on unmount
-    }
+    if (!taskId) return;
+    fetchTask();
+    const interval = setInterval(fetchTask, 5000);
+    return () => clearInterval(interval);
   }, [taskId]);
 
   const fetchTask = async () => {
     try {
-      const response = await fetch(`http://localhost:5174/api/tasks/${taskId}`);
+      const response = await fetch(`/api/tasks/${taskId}`);
       const data = await response.json();
       setTask(data);
       setLoading(false);
-    } catch (error) {
-      console.error('Failed to fetch task:', error);
+    } catch {
       setLoading(false);
     }
   };
 
   const handleDelete = async () => {
-    if (!taskId) return;
-    const confirmed = window.confirm('Are you sure you want to delete this task?');
-    if (!confirmed) return;
+    if (!taskId || !window.confirm('Delete this task?')) return;
     try {
       await deleteTask(taskId);
-      if (onTaskDeleted) {
-        onTaskDeleted();
-      } else {
-        alert('Task deleted successfully.');
-        window.location.reload();
-      }
-    } catch (err) {
-      console.error('Failed to delete task', err);
+      onTaskDeleted ? onTaskDeleted() : window.location.reload();
+    } catch {
       alert('Failed to delete task.');
     }
   };
 
-  const formatTaskStatus = (task: Task) => {
-    if (task.status === 'requeued' && task.retry_count > 0) {
-      return `Retrying (${task.retry_count})...`;
-    }
-    if (task.status === 'completed' && task.retry_count > 0) {
-      return `Completed after ${task.retry_count} ${task.retry_count > 1 ? 'retries' : 'retry'}`;
-    }
-    return task.status;
-  }
+  const formatStatus = (t: Task) => {
+    if (t.status === 'requeued' && t.retry_count > 0) return `Retrying (${t.retry_count})…`;
+    if (t.status === 'completed' && t.retry_count > 0) return `Completed after ${t.retry_count} ${t.retry_count > 1 ? 'retries' : 'retry'}`;
+    return t.status;
+  };
 
-  if (!taskId) {
-    return (
-      <div className="text-center text-gray-400 py-12">
-        <p>No task selected</p>
-      </div>
-    );
-  }
+  if (!taskId) return (
+    <div className="td-empty">Select a task to view details.</div>
+  );
 
-  if (loading) {
-    return (
-      <div className="text-center text-gray-400 py-12">
-        <p>Loading task details...</p>
-      </div>
-    );
-  }
+  if (loading) return (
+    <div className="td-empty">Loading…</div>
+  );
+
+  if (!task) return (
+    <div className="td-empty">Task not found.</div>
+  );
+
+  const statusColor = STATUS_COLORS[task.status] || 'rgba(243,244,246,0.6)';
+  const priorityColor = PRIORITY_COLORS[task.priority?.toLowerCase()] || 'rgba(243,244,246,0.6)';
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-2xl font-bold text-white mb-2">Task Details</h1>
-          {task && (
-            <div className="flex items-center gap-3 text-sm text-gray-400">
-              <span className="px-2 py-1 rounded bg-gray-800">{formatTaskStatus(task)}</span>
-              <span className="px-2 py-1 rounded bg-gray-800">{task.priority}</span>
-              {task.jira_ticket && (
-                <span className="px-2 py-1 rounded bg-blue-900/30 text-blue-400">{task.jira_ticket}</span>
-              )}
-            </div>
-          )}
-        </div>
-        <button
-          onClick={handleDelete}
-          className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm"
-        >
-          Delete Task
-        </button>
-      </div>
+    <div className="td-page">
 
-      {/* Task Info */}
-      {task && (
-        <div className="bg-gray-900 border border-gray-700 rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Task Information</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="text-sm text-gray-400 mb-1">Title</div>
-              <div className="text-white">{task.title}</div>
-            </div>
-            <div>
-              <div className="text-sm text-gray-400 mb-1">Status</div>
-              <div className="text-white capitalize">{formatTaskStatus(task)}</div>
-            </div>
-            <div>
-              <div className="text-sm text-gray-400 mb-1">Priority</div>
-              <div className="text-white capitalize">{task.priority}</div>
-            </div>
-            <div>
-              <div className="text-sm text-gray-400 mb-1">Pipeline</div>
-              <div className="text-white">{task.pipeline_id || 'N/A'}</div>
-            </div>
-            {task.repository && (
-              <div className="col-span-2">
-                <div className="text-sm text-gray-400 mb-1">Repository</div>
-                <div className="text-white text-sm break-all">{task.repository}</div>
-              </div>
-            )}
-            {task.target_branch && (
-              <div>
-                <div className="text-sm text-gray-400 mb-1">Target Branch</div>
-                <div className="text-white">{task.target_branch}</div>
-              </div>
-            )}
-            <div>
-              <div className="text-sm text-gray-400 mb-1">Created</div>
-              <div className="text-white text-sm">{new Date(task.created_at).toLocaleString()}</div>
-            </div>
-            {task.description && (
-              <div className="col-span-2">
-                <div className="text-sm text-gray-400 mb-1">Description</div>
-                <div className="text-white text-sm">{task.description}</div>
-              </div>
+      {/* Header */}
+      <div className="td-header">
+        <div className="td-header-left">
+          <h1 className="td-title">{task.title}</h1>
+          <div className="td-badges">
+            <span className="td-badge" style={{ color: statusColor, borderColor: statusColor }}>{formatStatus(task)}</span>
+            <span className="td-badge" style={{ color: priorityColor, borderColor: priorityColor }}>{task.priority}</span>
+            {task.jira_ticket && (
+              <span className="td-badge" style={{ color: '#6b9eff', borderColor: '#6b9eff' }}>{task.jira_ticket}</span>
             )}
           </div>
         </div>
-      )}
-
-      {/* Pipeline Progress */}
-      <PipelineVisualizer taskId={taskId} />
-
-      {/* PR Tracking and Test Results side by side */}
-      <div className="grid grid-cols-2 gap-6">
-        <PRTracking taskId={taskId} />
-        <TestResults taskId={taskId} />
+        <button className="td-delete-btn" onClick={handleDelete}>Delete</button>
       </div>
+
+      {/* Info card */}
+      <div className="td-card">
+        <div className="td-card-title">Task Information</div>
+        <div className="td-grid">
+          <div className="td-field">
+            <div className="td-label">Pipeline</div>
+            <div className="td-value">{task.pipeline_id || '—'}</div>
+          </div>
+          <div className="td-field">
+            <div className="td-label">Created</div>
+            <div className="td-value">{new Date(task.created_at).toLocaleString()}</div>
+          </div>
+          {task.target_branch && (
+            <div className="td-field">
+              <div className="td-label">Target Branch</div>
+              <div className="td-value">{task.target_branch}</div>
+            </div>
+          )}
+          {task.repository && (
+            <div className="td-field td-field--full">
+              <div className="td-label">Repository</div>
+              <div className="td-value td-value--mono">{task.repository}</div>
+            </div>
+          )}
+          {task.description && (
+            <div className="td-field td-field--full">
+              <div className="td-label">Description</div>
+              <div className="td-value td-value--pre">{task.description}</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Pipeline progress */}
+      <div className="td-card">
+        <div className="td-card-title">Pipeline Progress</div>
+        <PipelineVisualizer taskId={taskId} />
+      </div>
+
+      {/* PR Tracking */}
+      <div className="td-card">
+        <PRTracking taskId={taskId} />
+      </div>
+
     </div>
   );
 };

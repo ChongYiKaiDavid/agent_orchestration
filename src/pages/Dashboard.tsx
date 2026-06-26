@@ -21,6 +21,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
   const [jiraError, setJiraError] = useState<string | null>(null);
   const [jiraSending, setJiraSending] = useState<Record<string, boolean>>({});
   const [jiraSent, setJiraSent] = useState<Record<string, boolean>>({});
+  const [prMap, setPrMap] = useState<Record<string, string>>({});  // taskId -> PR url
 
   const lifecycleStages = [
     { id: 'plan', label: 'Planning', color: 'var(--accent-blue)' },
@@ -35,7 +36,22 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
   useEffect(() => {
     const loadTasks = () => {
       fetchTasks()
-        .then(setTasks)
+        .then((loaded: any[]) => {
+          setTasks(loaded);
+          // Fetch PRs for tasks that may have them
+          loaded
+            .filter((t: any) => ['pr_created', 'completed'].includes(t.status) )
+            .forEach((t: any) => {
+              fetch(`/api/tasks/${t.id}/pull-requests`)
+                .then(r => r.json())
+                .then((prs: any[]) => {
+                  if (prs?.[0]?.url) {
+                    setPrMap(prev => ({ ...prev, [t.id]: prs[0].url }));
+                  }
+                })
+                .catch(() => {});
+            });
+        })
         .catch(() => setTasks([]));
     };
 
@@ -225,10 +241,19 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
                       style={{ cursor: 'pointer' }}
                     >
                       <div className="dashboard-task-top">
-                        <div>
                           <div className="dashboard-task-title">{task.title}</div>
-                          <div className="dashboard-task-meta">{task.project} · {task.agent} · {task.timestamp}</div>
-                        </div>
+                          {task.description && (
+                            <div className="dashboard-task-desc">{task.description.slice(0, 80)}{task.description.length > 80 ? '…' : ''}</div>
+                          )}
+                          {prMap[task.id] && (
+                            <a
+                              className="dashboard-task-pr-link"
+                              href={prMap[task.id]}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={e => e.stopPropagation()}
+                            >View PR →</a>
+                          )}
                       </div>
                     </div>
                   ))}
