@@ -1,21 +1,26 @@
-export const agents = [
-  {
-    id: 'devin',
-    label: 'Devin',
-    description: 'Stateless prompt-driven agent invoked through the Devin CLI.',
-    displayName: 'Devin',
-    fullDescription: 'Stateless prompt-driven agent invoked through the Devin CLI.',
-    reads: ['task.json', 'planner.requirements.md', 'implementation.diff.md', 'reviewer.review.md'],
-    writes: ['planner.requirements.md', 'planner.design.md', 'implementation.diff.md', 'reviewer.review.md'],
-    completionToken: 'VERDICT: GO/FAIL/SPEC_FAIL/ESCALATE',
-    promptTemplate: 'Use Devin to complete the current pipeline stage based on task inputs and prior artifacts.',
-  },
-];
+import fs from 'fs';
+import path from 'path';
+
+const skillsDir = path.resolve(path.dirname(import.meta.url.replace('file:///', '')), 'skills');
+
+let allSkills = [];
+
+try {
+  const files = fs.readdirSync(skillsDir).filter(f => f.endsWith('.json'));
+  allSkills = files.map(file => {
+    const filePath = path.join(skillsDir, file);
+    const content = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(content);
+  });
+} catch (e) {
+  console.error('Failed to load agent skills:', e);
+}
 
 export function listAgents() {
-  return agents;
+  return allSkills;
 }
 
 export function getAgent(id) {
-  return agents.find((agent) => agent.id === id) ?? null;
+  return allSkills.find((agent) => agent.id === id) ?? null;
 }
+

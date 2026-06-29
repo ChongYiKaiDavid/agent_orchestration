@@ -27,3 +27,15 @@ Agents produce files; the Engine handles everything else.
 
 - **Automatic Conflict Resolution**: On conflicting edits, the system detects clashes, generates a review/resolution task, and safely combines changes.
 
+-change colour
+-add pr link, name and description on dashboard only
+-add jira demo or free jira included inside this app so it has to show as jira story or jira task as well
+-add editing for the agents, for example, different files for devin, codex etc, dont hardcode the agents -p, should be in the configuration each cli perimeter should be in the configuration file Agent page should not show display name, should show planner, reviewer, coder etc add skill as well
+-add a more detailed prompt for agent page
+-define cli in the pipeline page, find another agent like gemini, deepseek etc dont use ollama local llm
+-each tasks must have target branch (release branch) When to release etc
+-For each task must checkout the code on the release branch, create a future branch for the release branch and implement code on release branch and create pr and merge on release branch(should be configurable as well)by default it is enabled
+-create jira and checkout to get the jira key then do the tasks create pr 
+-put all configurations into the setting page
+
+    

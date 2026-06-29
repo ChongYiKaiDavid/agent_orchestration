@@ -65,6 +65,15 @@ export async function fetchAgents() {
   return parseJson(response);
 }
 
+export async function updateAgent(agentId: string, payload: any) {
+  const response = await fetch(`/api/agents/${encodeURIComponent(agentId)}`, {
+    method: 'PUT',
+    headers: defaultHeaders,
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response);
+}
+
 export async function deleteTask(taskId: string) {
   const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
     method: 'DELETE',

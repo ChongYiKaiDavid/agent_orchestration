@@ -29,6 +29,25 @@ import { getPRPollingStats, pollAllPRs, startPRPolling, stopPRPolling } from './
 
 const router = express.Router();
 
+import fs from 'fs';
+
+router.put('/agents/:id', express.json(), (req, res) => {
+  const { id } = req.params;
+  const skillData = req.body;
+
+  try {
+    const filePath = path.join(process.cwd(), 'server', 'skills', `${id}.json`);
+    if (fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, JSON.stringify(skillData, null, 2), 'utf8');
+      res.json({ success: true, message: `Skill '${id}' updated successfully.` });
+    } else {
+      res.status(404).json({ error: `Skill '${id}' not found.` });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.get('/tasks', (req, res) => {
   const tasks = listTasks();
   res.json(tasks);

@@ -1,0 +1,20 @@
+{
+  "id": "coder",
+  "label": "Coder",
+  "description": "Stateless prompt-driven agent invoked through a CLI.",
+  "displayName": "Code Executor",
+  "fullDescription": "This agent is responsible for writing code based on a set of requirements. It can read task descriptions and design documents, and it writes code files and a summary of its work.",
+  "skills": ["code generation", "file manipulation", "reading context"],
+  "reads": ["task.json", "planner.requirements.md", "planner.design.md"],
+  "writes": ["implementation.diff.md"],
+  "completionToken": "<<<CODER_COMPLETE>>>",
+  "promptTemplate": "Use the CLI in non-interactive mode to complete the current pipeline stage. Your task is to write code based on the provided inputs. After modifications, also write a human-readable summary of what you changed into implementation.diff.md. Include any assumptions and list the files changed.",
+  "cli": {
+    "command": "devin",
+    "args": ["--prompt-file", "{promptFile}", "--print"],
+    "env": {
+      "DEVIN_PERMISSION_MODE": "dangerous",
+      "DEVIN_MODEL": "claude-3-opus-20240229"
+    }
+  }
+}

@@ -78,6 +78,8 @@ function initSchema() {
       repo TEXT,
       pr_number TEXT,
       url TEXT,
+      title TEXT,
+      description TEXT,
       status TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       merged_at TEXT,
@@ -109,6 +111,18 @@ function initSchema() {
   // Add jira_ticket column to existing tasks table if it doesn't exist
   try {
     db.exec(`ALTER TABLE tasks ADD COLUMN jira_ticket TEXT`);
+  } catch (e) {
+    // Column already exists, ignore error
+  }
+
+  // Add title and description columns to existing pull_requests table if they don't exist
+  try {
+    db.exec(`ALTER TABLE pull_requests ADD COLUMN title TEXT`);
+  } catch (e) {
+    // Column already exists, ignore error
+  }
+  try {
+    db.exec(`ALTER TABLE pull_requests ADD COLUMN description TEXT`);
   } catch (e) {
     // Column already exists, ignore error
   }

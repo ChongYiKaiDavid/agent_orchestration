@@ -21,7 +21,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
   const [jiraError, setJiraError] = useState<string | null>(null);
   const [jiraSending, setJiraSending] = useState<Record<string, boolean>>({});
   const [jiraSent, setJiraSent] = useState<Record<string, boolean>>({});
-  const [prMap, setPrMap] = useState<Record<string, string>>({});  // taskId -> PR url
+  const [prMap, setPrMap] = useState<Record<string, any>>({});  // taskId -> PR object
 
   const lifecycleStages = [
     { id: 'plan', label: 'Planning', color: 'var(--accent-blue)' },
@@ -45,8 +45,8 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
               fetch(`/api/tasks/${t.id}/pull-requests`)
                 .then(r => r.json())
                 .then((prs: any[]) => {
-                  if (prs?.[0]?.url) {
-                    setPrMap(prev => ({ ...prev, [t.id]: prs[0].url }));
+                  if (prs?.[0]) {
+                    setPrMap(prev => ({ ...prev, [t.id]: prs[0] }));
                   }
                 })
                 .catch(() => {});
@@ -246,13 +246,16 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
                             <div className="dashboard-task-desc">{task.description.slice(0, 80)}{task.description.length > 80 ? '…' : ''}</div>
                           )}
                           {prMap[task.id] && (
-                            <a
-                              className="dashboard-task-pr-link"
-                              href={prMap[task.id]}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={e => e.stopPropagation()}
-                            >View PR →</a>
+                            <div className="dashboard-task-pr">
+                              <a
+                                className="dashboard-task-pr-link"
+                                href={prMap[task.id].url}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={e => e.stopPropagation()}
+                              >{prMap[task.id].title || 'View PR'} →</a>
+                              {prMap[task.id].description && <div className="dashboard-task-pr-desc">{prMap[task.id].description}</div>}
+                            </div>
                           )}
                       </div>
                     </div>
