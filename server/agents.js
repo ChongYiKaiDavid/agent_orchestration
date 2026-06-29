@@ -1,7 +1,10 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-const skillsDir = path.resolve(path.dirname(import.meta.url.replace('file:///', '')), 'skills');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const skillsDir = path.join(__dirname, 'skills');
 
 let allSkills = [];
 
