@@ -31,6 +31,21 @@ const router = express.Router();
 
 import fs from 'fs';
 
+router.post('/agents', express.json(), (req, res) => {
+  const skillData = req.body;
+  if (!skillData?.id) return res.status(400).json({ error: 'Missing required field: id' });
+
+  const filePath = path.join(process.cwd(), 'server', 'skills', `${skillData.id}.json`);
+  if (fs.existsSync(filePath)) return res.status(409).json({ error: `Skill '${skillData.id}' already exists.` });
+
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(skillData, null, 2), 'utf8');
+    res.status(201).json({ success: true, message: `Skill '${skillData.id}' created.` });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.put('/agents/:id', express.json(), (req, res) => {
   const { id } = req.params;
   const skillData = req.body;
