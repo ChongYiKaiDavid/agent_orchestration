@@ -134,6 +134,7 @@ Create a `.env` file in the root directory (or use `.env.agent_orchestration`):
 JIRA_BASE_URL=https://your-domain.atlassian.net
 JIRA_USER=your-email@example.com
 JIRA_API_TOKEN=your-jira-api-token
+JIRA_SPACE_KEYS=KAN
 
 # Bitbucket Integration
 BITBUCKET_USERNAME=your-username
@@ -219,7 +220,7 @@ The system tries multiple authentication methods in order for Bitbucket:
 
 ## Jira Integration
 
-Tasks can be created from Jira via the `/api/tasks/from-jira` endpoint:
+Tasks can be created from Jira via the `/api/tasks/from-jira` endpoint. Only issues from projects listed in `JIRA_SPACE_KEYS` are fetched and imported — requests with keys outside that list are rejected with a 403.
 
 ```bash
 curl -X POST http://localhost:5174/api/tasks/from-jira \

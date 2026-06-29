@@ -127,6 +127,17 @@ router.post('/tasks/from-jira', express.json(), (req, res) => {
     return res.status(400).json({ error: 'Missing required field: summary (or title)' });
   }
 
+  // Filter by allowed space keys (e.g. JIRA_SPACE_KEYS=MDP,KAN)
+  const allowedKeys = process.env.JIRA_SPACE_KEYS
+    ? process.env.JIRA_SPACE_KEYS.split(',').map(k => k.trim().toUpperCase()).filter(Boolean)
+    : [];
+  if (allowedKeys.length > 0 && key) {
+    const spaceKey = key.split('-')[0].toUpperCase();
+    if (!allowedKeys.includes(spaceKey)) {
+      return res.status(403).json({ error: `Space key '${spaceKey}' is not allowed. Allowed: ${allowedKeys.join(', ')}` });
+    }
+  }
+
   const normalizedLinks = Array.isArray(links)
     ? links.filter(Boolean)
     : (typeof links === 'string' && links.trim() ? [links.trim()] : []);
@@ -409,12 +420,20 @@ router.get('/jira/issues', async (req, res) => {
 
   const { statuses = 'new,indeterminate', maxResults = 50, project } = req.query;
 
-  // Build JQL — filter by project if provided, otherwise fetch all non-done issues
-  const statusList = String(statuses).split(',').map(s => `"${s.trim()}"`).join(',');
-  let jql = `statusCategory in (${statusList}) ORDER BY updated DESC`;
-  if (project) {
-    jql = `project = "${project}" AND ${jql}`;
+  // Resolve allowed space keys: query param > JIRA_SPACE_KEYS env > none
+  const allowedSpaceKeys = (() => {
+    const src = project || process.env.JIRA_SPACE_KEYS || '';
+    return src.split(',').map(k => k.trim().toUpperCase()).filter(Boolean);
+  })();
+
+  if (allowedSpaceKeys.length === 0) {
+    return res.status(400).json({ error: 'No Jira space keys configured. Set JIRA_SPACE_KEYS in your .env file (e.g. JIRA_SPACE_KEYS=MDP,KAN).' });
   }
+
+  // Build JQL filtered to allowed projects
+  const statusList = String(statuses).split(',').map(s => `"${s.trim()}"`).join(',');
+  const projectList = allowedSpaceKeys.map(k => `"${k}"`).join(',');
+  const jql = `project in (${projectList}) AND statusCategory in (${statusList}) ORDER BY updated DESC`;
 
   const url = `${baseUrl}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=${maxResults}&fields=summary,description,status,priority,assignee,key,issuetype`;
 
