@@ -13,6 +13,7 @@ const Decompose: React.FC = () => {
   const [repository, setRepository] = useState('');
   const [targetBranch, setTargetBranch] = useState('');
   const [jiraTicket, setJiraTicket] = useState('');
+  const [bitbucketUrl, setBitbucketUrl] = useState('');
   const [drafts, setDrafts] = useState<DraftTask[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +36,7 @@ const Decompose: React.FC = () => {
         repository: repository || undefined,
         targetBranch: targetBranch || undefined,
         jiraTicket: jiraTicket || undefined,
+        bitbucketUrl: bitbucketUrl || undefined,
       };
       const createdDrafts = await decomposeEpic(payload);
 
@@ -48,6 +50,7 @@ const Decompose: React.FC = () => {
       setRepository('');
       setTargetBranch('');
       setJiraTicket('');
+      setBitbucketUrl('');
     } catch (err) {
       setError((err as Error).message || 'Unable to decompose the epic.');
     } finally {
@@ -84,6 +87,11 @@ const Decompose: React.FC = () => {
         <label className="create-task-field">
           <span className="create-task-label">Jira Ticket</span>
           <input className="create-task-input" placeholder="e.g. BANK-1234" value={jiraTicket} onChange={(event) => setJiraTicket(event.target.value)} />
+        </label>
+
+        <label className="create-task-field">
+          <span className="create-task-label">Bitbucket URL</span>
+          <input className="create-task-input" placeholder="e.g. https://bitbucket.company.com/projects/PROJ/pull-requests/123" value={bitbucketUrl} onChange={(event) => setBitbucketUrl(event.target.value)} />
         </label>
 
         <button className="decompose-submit" type="button" onClick={handleDecompose} disabled={loading}>

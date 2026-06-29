@@ -3,6 +3,7 @@ export type DecomposeEpicPayload = {
   repository?: string;
   targetBranch?: string;
   jiraTicket?: string;
+  bitbucketUrl?: string;
 };
 
 const defaultHeaders = {
