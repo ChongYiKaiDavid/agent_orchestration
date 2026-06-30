@@ -345,6 +345,7 @@ button.nav-item{background:transparent;border:0;outline:0;cursor:pointer;width:1
 .settings-input{padding:10px 12px;border-radius:6px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);color:var(--text);font-size:14px;outline:0;transition:border-color 0.2s}
 .settings-input:focus{border-color:var(--accent-blue)}
 .settings-input::placeholder{color:var(--muted)}
+.settings-input:disabled,.settings-input[readonly]{opacity:0.5;cursor:not-allowed;background:rgba(255,255,255,0.01)}
 
 .settings-toggle-wrap{display:flex;align-items:center}
 .settings-toggle{display:flex;align-items:center;width:44px;height:24px;border-radius:12px;background:rgba(255,255,255,0.1);border:0;cursor:pointer;padding:2px;transition:background 0.2s}
@@ -353,6 +354,14 @@ button.nav-item{background:transparent;border:0;outline:0;cursor:pointer;width:1
 .settings-toggle-circle{width:20px;height:20px;border-radius:50%;background:#fff;transition:transform 0.2s}
 .settings-toggle.off .settings-toggle-circle{transform:translateX(0)}
 .settings-toggle.on .settings-toggle-circle{transform:translateX(20px)}
+
+.settings-subsection{margin-top:16px;border-left:2px solid rgba(255,255,255,0.06);padding-left:16px}
+.settings-subsection-header{display:flex;align-items:center;gap:8px;width:100%;padding:12px 0;background:transparent;border:0;text-align:left;cursor:pointer;outline:0;font-size:14px;font-weight:600;color:rgba(243,244,246,0.8);transition:color 0.2s}
+.settings-subsection-header:hover{color:var(--accent-blue)}
+.settings-subsection-label{flex:1}
+.settings-subsection-content{display:flex;flex-direction:column;gap:16px;padding:0 0 16px 24px}
+.settings-pipeline-item{padding:16px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:8px;margin-bottom:12px}
+.settings-pipeline-name{font-size:14px;font-weight:700;color:var(--text);margin-bottom:12px}
 
 .header-menu-button{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.02);color:var(--text);font-size:20px;cursor:pointer}
 .header-title{font-size:18px;font-weight:800;color:var(--text)}
