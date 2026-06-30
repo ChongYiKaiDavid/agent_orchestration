@@ -7,6 +7,8 @@ import db from './db.js';
 import { getPipeline, listPipelines, getPipelineSync, listPipelinesSync } from './pipelines.js';
 import { runDevinStage, buildStagePrompt as buildDevinStagePrompt } from './agents/devin.js';
 import { runDeepSeekStage, buildStagePrompt as buildDeepSeekStagePrompt } from './agents/deepseek.js';
+import { runGeminiStage, buildStagePrompt as buildGeminiStagePrompt } from './agents/gemini.js';
+
 import { listAgents } from './agents.js';
 import { autoSelectPipelineAndAgent, autoSelectAgentForStage } from './auto-selector.js';
 import { attemptRebaseWithResolution } from './conflict-resolver.js';
@@ -687,6 +689,9 @@ export async function processTask(task) {
     
     // Auto-select agent for this stage based on task characteristics
     const selectedAgent = autoSelectAgentForStage(stage.id, task);
+    // Hard guardrail: remove legacy 'ollama' agent selection
+    const agent = selectedAgent === 'ollama' ? 'gemini' : selectedAgent;
+
     console.log(`[processTask] Stage '${stage.id}' auto-selected agent: ${selectedAgent}`);
     
     if (stage.id === 'create_pr') {
@@ -698,12 +703,15 @@ export async function processTask(task) {
     let result;
 
     // Use the correct prompt builder based on auto-selected agent
-    if (selectedAgent === 'deepseek') {
+    if (agent === 'deepseek') {
       prompt = buildDeepSeekStagePrompt(stage, task, previousOutputs, repositoryPath);
+    } else if (agent === 'gemini') {
+      prompt = buildGeminiStagePrompt(stage, task, previousOutputs, repositoryPath);
     } else {
       // devin and other agents
       prompt = buildDevinStagePrompt(stage, task, previousOutputs, repositoryPath);
     }
+
 
     // Hard guarantee for coding stage: enforce exact FILE:/---/--- format in the prompt.
     // This avoids runtime mismatch where agent prompt builders don't include strict FILE instructions.
@@ -767,8 +775,9 @@ export async function processTask(task) {
     const stageLogId = stage.id;
 
     // Agent fallback: if the first choice fails, try alternatives for this stage.
-    const fallbackAgents = ['devin', 'deepseek'];
-    const fallbackOrder = [...new Set([selectedAgent, ...fallbackAgents])];
+    const fallbackAgents = ['devin', 'deepseek', 'gemini'];
+    const fallbackOrder = [...new Set([agent, ...fallbackAgents])];
+
     const tried = new Set();
 
     for (const agent of fallbackOrder) {
@@ -781,6 +790,14 @@ export async function processTask(task) {
       try {
         if (agent === 'deepseek') {
           result = await runDeepSeekStage({
+            prompt,
+            stageId: stage.id,
+            workspace: stageFolder,
+            onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
+            onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
+          });
+        } else if (agent === 'gemini') {
+          result = await runGeminiStage({
             prompt,
             stageId: stage.id,
             workspace: stageFolder,

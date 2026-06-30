@@ -7,6 +7,12 @@ const AGENT_CAPABILITIES = {
     speed: 'medium',
     bestFor: ['full implementation', 'complex refactoring', 'multi-file changes', 'detailed coding tasks'],
   },
+  gemini: {
+    strengths: ['code generation', 'planning', 'review', 'analysis', 'documentation'],
+    complexity: 'medium',
+    speed: 'fast',
+    bestFor: ['planning', 'code review', 'low to medium complexity coding', 'documentation'],
+  },
   deepseek: {
     strengths: ['code generation', 'planning', 'review', 'analysis', 'documentation'],
     complexity: 'medium',
@@ -14,6 +20,7 @@ const AGENT_CAPABILITIES = {
     bestFor: ['planning', 'code review', 'low to medium complexity coding', 'documentation'],
   },
 };
+
 
 const COMPLEXITY_PATTERNS = {
   high: /\b(complex|architecture|refactoring|migrate|redesign|overhaul|system-wide|distributed|microservice)\b/i,

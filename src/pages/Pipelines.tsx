@@ -2,64 +2,55 @@ import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { fetchPipelines } from '../api';
 
-const defaultPipelines = [
-  {
-    id: 'code-only',
-    name: 'Code Only',
-    builtIn: true,
-    stages: [{ id: 'coding', name: 'Coding', agent: 'devin' }],
-  },
-  {
-    id: 'plan-code-review',
-    name: 'Plan → Code → Review',
-    builtIn: true,
-    stages: [
-      { id: 'planning', name: 'Planning', agent: 'devin' },
-      { id: 'coding', name: 'Coding', agent: 'devin' },
-      { id: 'reviewing', name: 'Reviewing', agent: 'devin' },
-    ],
-  },
-  {
-    id: 'gemini-code-only',
-    name: 'Gemini Code Only',
-    builtIn: true,
-    stages: [{ id: 'coding', name: 'Coding', agent: 'gemini' }],
-  },
-  {
-    id: 'ollama-code-only',
-    name: 'Ollama Code Only',
-    builtIn: true,
-    stages: [{ id: 'coding', name: 'Coding', agent: 'ollama' }],
-  },
-  {
-    id: 'ollama-plan-code-review',
-    name: 'Ollama Plan → Code → Review',
-    builtIn: true,
-    stages: [
-      { id: 'planning', name: 'Planning', agent: 'ollama' },
-      { id: 'coding', name: 'Coding', agent: 'ollama' },
-      { id: 'reviewing', name: 'Reviewing', agent: 'ollama' },
-    ],
-  },
-];
-
 const PipelinesPage: React.FC = () => {
   const [selectedPipeline, setSelectedPipeline] = useState('plan-code-review');
   const [selectedStage, setSelectedStage] = useState(0);
-  const [pipelines, setPipelines] = useState<any[]>(defaultPipelines);
+  const [pipelines, setPipelines] = useState<any[]>([]);
+  const [yamlByPipelineId, setYamlByPipelineId] = useState<Record<string, string>>({});
+  const [pipelineYamlLoadError, setPipelineYamlLoadError] = useState<string>('');
+  const [enableGitPush, setEnableGitPush] = useState(true);
+  const [enableCreatePr, setEnableCreatePr] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
 
+  // YAML preview is best-effort based on whatever the backend includes in the pipeline payload.
+  // (No dedicated fetch endpoint is used.)
   useEffect(() => {
-    fetchPipelines().then((items) => {
-      if (Array.isArray(items) && items.length > 0) {
-        setPipelines(items);
-      }
-    }).catch(() => {
-      setPipelines(defaultPipelines);
-    });
+    fetchPipelines()
+      .then(async (items) => {
+        if (Array.isArray(items) && items.length > 0) {
+          setPipelines(items);
+
+          const nextById: Record<string, string> = {};
+          for (const p of items) {
+            if (typeof p?.yaml === 'string') nextById[p.id] = p.yaml;
+            else if (typeof p?.definitionYaml === 'string') nextById[p.id] = p.definitionYaml;
+            else if (typeof p?.rawYaml === 'string') nextById[p.id] = p.rawYaml;
+          }
+          setYamlByPipelineId(nextById);
+        } else {
+          setPipelines([]);
+          setYamlByPipelineId({});
+        }
+      })
+      .catch((e) => {
+        setPipelineYamlLoadError(e instanceof Error ? e.message : String(e));
+        setPipelines([]);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
   }, []);
 
-  const current = pipelines.find((p) => p.id === selectedPipeline) || pipelines[0];
-  const currentStage = current?.stages[selectedStage] || current?.stages[0] || { id: '', name: '', agent: '', verifyFiles: [] };
+  const current = pipelines.find((p) => p.id === selectedPipeline) || pipelines[0] || null;
+  const currentStages = (current as any)?.stages;
+  const currentStage =
+    currentStages?.[selectedStage] ||
+    currentStages?.[0] ||
+    ({ id: '', name: '', agent: '', verifyFiles: [] } as any);
+
+  if (isLoading) {
+    return <div className="pipelines-page" />;
+  }
 
   return (
     <div className="pipelines-page">
@@ -108,10 +99,12 @@ const PipelinesPage: React.FC = () => {
           </div>
 
           <div className="pipelines-stages-section">
-              <div className="pipelines-detail-label">Stages</div>
+            <div className="pipelines-detail-label">Stages</div>
 
-              {/* Back-compat: tests look for a "release-ready" button */}
-              <button type="button" aria-label="release-ready" style={{ display: 'none' }}>release-ready</button>
+            {/* Back-compat: tests look for a "release-ready" button */}
+            <button type="button" aria-label="release-ready" style={{ display: 'none' }}>
+              release-ready
+            </button>
 
             <div className="pipelines-stages-diagram">
               {current?.stages?.map((stage: any, idx: number) => (
@@ -140,7 +133,7 @@ const PipelinesPage: React.FC = () => {
               </button>
             </div>
 
-            <div className="pipelines-stage-grid">
+            <div className="pipelines-stage-grid" style={{ gridTemplateColumns: '1fr' }}>
               <div className="pipelines-field">
                 <label className="pipelines-label">Name</label>
                 <div className="pipelines-value">{currentStage.name || currentStage.id}</div>
@@ -148,50 +141,111 @@ const PipelinesPage: React.FC = () => {
 
               <div className="pipelines-field">
                 <label className="pipelines-label">Agent</label>
-                <select className="pipelines-select" value={currentStage.agent.toLowerCase()} disabled>
+                <select
+                  className="pipelines-select"
+                  value={String(currentStage.agent || '').toLowerCase()}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setPipelines((prev) =>
+                      prev.map((p) => {
+                        if (p.id !== current?.id) return p;
+                        return {
+                          ...p,
+                          stages: (p.stages || []).map((s: any, idx: number) => {
+                            if (idx !== selectedStage) return s;
+                            return { ...s, agent: next };
+                          }),
+                        };
+                      })
+                    );
+                  }}
+                >
                   <option value="devin">Devin</option>
-                  <option value="gemini">Gemini CLI</option>
-                  <option value="ollama">Ollama (local)</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="deepseek">DeepSeek</option>
                 </select>
               </div>
-            </div>
 
-            <div className="pipelines-field">
-              <label className="pipelines-label">Next</label>
-              <div className="pipelines-next-wrap">
-                <span className="pipelines-next-stage">{current.stages[selectedStage + 1]?.name || ''}</span>
-                <button className="pipelines-override-btn" type="button">
-                  Override
-                </button>
+              {/* Override section (placeholder controls; layout requested by user) */}
+              <div className="pipelines-checkboxes" style={{ marginTop: 4 }}>
+                <label className="pipelines-checkbox">
+                  <input type="checkbox" defaultChecked={false} />
+                  <span>Retry cleanup</span>
+                </label>
+                <label className="pipelines-checkbox">
+                  <input type="checkbox" defaultChecked={false} />
+                  <span>Generate diff (post_stage)</span>
+                </label>
               </div>
-            </div>
 
-            <div className="pipelines-checkboxes">
-              <label className="pipelines-checkbox">
-                <input type="checkbox" defaultChecked={false} />
-                <span>Retry cleanup</span>
-              </label>
-              <label className="pipelines-checkbox">
-                <input type="checkbox" defaultChecked={false} />
-                <span>Generate diff (post_stage)</span>
-              </label>
-            </div>
-
-            {currentStage.verifyFiles?.length > 0 && (
+              {/* ACTIONS */}
               <div className="pipelines-field">
-                <label className="pipelines-label">Verify (file_exists_checks)</label>
-                <div className="pipelines-verify-list">
-                  {currentStage.verifyFiles.map((file: string) => (
-                    <div key={file} className="pipelines-verify-item">
-                      <span className="pipelines-verify-file">{file}</span>
-                      <button className="pipelines-verify-remove" type="button">
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
+                <label className="pipelines-label">Actions</label>
+                <div className="pipelines-checkboxes" style={{ marginTop: 8 }}>
+                  <label className="pipelines-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={enableGitPush}
+                      onChange={(e) => setEnableGitPush(e.target.checked)}
+                    />
+                    <span>git_push</span>
+                  </label>
+                  <label className="pipelines-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={enableCreatePr}
+                      onChange={(e) => setEnableCreatePr(e.target.checked)}
+                    />
+                    <span>create_pr</span>
+                  </label>
+                </div>
+
+                {/* YAML PREVIEW (directly under Actions checkbox div) */}
+                <div style={{ marginTop: 10 }}>
+                  <label className="pipelines-label">YAML Preview</label>
+                  {pipelineYamlLoadError ? (
+                    <div style={{ color: '#ff6b6b', fontSize: 12, marginBottom: 8 }}>{pipelineYamlLoadError}</div>
+                  ) : null}
+                  <pre
+                    className="pipelines-yaml-preview"
+                    style={{
+                      background: '#0b1020',
+                      border: '1px solid #2a355a',
+                      borderRadius: 8,
+                      padding: 12,
+                      maxHeight: 350,
+                      overflow: 'auto',
+                      color: '#cfe3ff',
+                      fontSize: 12,
+                      whiteSpace: 'pre-wrap',
+                      margin: 0,
+                    }}
+                  >
+                    {(() => {
+                      const p = current;
+                      if (!p) return '';
+                      return yamlByPipelineId[p.id] || `Pipeline JSON:\n${JSON.stringify(p, null, 2)}`;
+                    })()}
+                  </pre>
                 </div>
               </div>
-            )}
+
+              {currentStage.verifyFiles?.length > 0 && (
+                <div className="pipelines-field">
+                  <label className="pipelines-label">Verify (file_exists_checks)</label>
+                  <div className="pipelines-verify-list">
+                    {currentStage.verifyFiles.map((file: string) => (
+                      <div key={file} className="pipelines-verify-item">
+                        <span className="pipelines-verify-file">{file}</span>
+                        <button className="pipelines-verify-remove" type="button">
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -200,3 +254,4 @@ const PipelinesPage: React.FC = () => {
 };
 
 export default PipelinesPage;
+

@@ -284,15 +284,17 @@ button.nav-item{background:transparent;border:0;outline:0;cursor:pointer;width:1
 .events-list .event{display:flex;gap:12px;padding:10px;border-radius:8px;background:rgba(255,255,255,0.01);border:1px solid rgba(255,255,255,0.02);margin-bottom:8px}
 
 /* Agents Page */
-.agents-page{display:flex;flex-direction:column;max-width:1400px;margin:-20px auto 0;padding:20px;height:calc(100vh - 40px);overflow:hidden}
-.agents-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-shrink:0;}
+.agents-page{display:flex;flex-direction:column;max-width:1400px;margin:-20px auto 0;padding:20px;height:calc(100vh - 40px);overflow:hidden;min-height:0}
+.agents-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-shrink:0;overflow:hidden}
+.agents-container{display:grid;grid-template-columns:300px 1fr;gap:24px;flex:1;min-height:0;overflow:hidden}
+.agents-sidebar{display:flex;flex-direction:column;gap:12px;overflow:hidden;min-height:0}
+.agents-detail{display:flex;flex-direction:column;gap:20px;background:rgba(255,255,255,0.01);padding:24px;border-radius:8px;border:1px solid rgba(255,255,255,0.05);position:relative;overflow-y:auto;min-height:0}
 .agents-title{margin:0;font-size:32px;font-weight:700;color:var(--text)}
 .agents-new-btn{padding:8px 16px;border-radius:6px;background:var(--accent-blue);color:#fff;border:0;font-weight:600;cursor:pointer;font-size:14px}
 .agents-new-btn:hover{background:#5a8eef;opacity:0.9}
 
 .agents-container{display:grid;grid-template-columns:300px 1fr;gap:24px;flex:1;min-height:0;overflow:hidden}
-.agents-sidebar{display:flex;flex-direction:column;gap:12px;overflow-y:auto;min-height:0}
-
+.agents-sidebar{display:flex;flex-direction:column;gap:12px;overflow:hidden;min-height:0}
 .agents-filter{width:100%;padding:8px 12px;border-radius:6px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.05);color:var(--text);font-size:14px;outline:0}
 .agents-filter::placeholder{color:var(--muted)}
 
@@ -304,7 +306,7 @@ button.nav-item{background:transparent;border:0;outline:0;cursor:pointer;width:1
 .agents-list-label{font-size:14px;font-weight:600;color:var(--text);margin-top:2px}
 .agents-list-desc{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.3}
 
-.agents-detail{display:flex;flex-direction:column;gap:20px;background:rgba(255,255,255,0.01);padding:24px;border-radius:8px;border:1px solid rgba(255,255,255,0.05);position:relative;overflow-y:auto;min-height:0}
+.agents-detail{display:flex;flex-direction:column;gap:20px;background:rgba(255,255,255,0.01);padding:24px;border-radius:8px;border:1px solid rgba(255,255,255,0.05);position:relative;overflow-y:auto;min-height:0;height:100%;z-index:1}
 .agents-detail-field{display:flex;flex-direction:column;gap:8px}
 .agents-detail-label{font-size:12px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em}
 .agents-detail-value{width:100%;padding:10px 12px;border-radius:6px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);color:var(--text);font-size:14px;outline:0;transition:border-color 0.2s;font-family:inherit;resize:vertical}
@@ -319,7 +321,7 @@ button.nav-item{background:transparent;border:0;outline:0;cursor:pointer;width:1
 .agents-detail-code{font-family:monospace;font-size:13px;color:var(--accent-yellow);background:rgba(251,191,36,0.05);padding:8px 12px;border-radius:4px;overflow-x:auto}
 .agents-detail-template{width:100%;padding:12px;border-radius:6px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);color:#d1d5db;font-family:monospace;font-size:12px;outline:0;line-height:1.6;white-space:pre-wrap;word-break:break-word;resize:vertical;transition:border-color 0.2s}
 .agents-detail-template:focus{border-color:var(--accent-blue)}
-.agents-detail-actions{position:sticky;bottom:0;padding:12px 0 0;margin-top:4px;background:linear-gradient(to bottom, transparent, var(--bg) 40%);}
+
 .agents-field-error{font-size:12px;color:var(--accent-red);margin-top:2px;}
 .input-error{border-color:var(--accent-red) !important;}
 
@@ -405,14 +407,19 @@ button.nav-item{background:transparent;border:0;outline:0;cursor:pointer;width:1
 .dashboard-jira-send-btn:disabled{opacity:0.55;cursor:default}
 
 /* Pipelines Page */
-.pipelines-page{display:flex;flex-direction:column;height:100%;max-width:1600px;margin:0 auto;padding:20px}
+.pipelines-page{display:flex;flex-direction:column;height:100%;max-width:1600px;margin:0 auto;padding:20px;min-height:0}
+.pipelines-header{flex-shrink:0}
+.pipelines-container{min-height:0}
+.pipelines-container{overflow:hidden; max-width:100%;}
+.pipelines-container > *{min-width:0}
+.pipelines-header{overflow:hidden}
 .pipelines-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
 .pipelines-title{margin:0;font-size:32px;font-weight:700;color:var(--text)}
 .pipelines-new-btn{padding:8px 16px;border-radius:6px;background:var(--accent-blue);color:#000;border:0;font-weight:600;cursor:pointer;font-size:14px}
 .pipelines-new-btn:hover{background:#5a8eef;opacity:0.9}
 
 .pipelines-container{display:grid;grid-template-columns:320px 1fr;gap:24px;flex:1}
-.pipelines-sidebar{display:flex;flex-direction:column}
+.pipelines-sidebar{display:flex;flex-direction:column;min-height:0;overflow-y:auto;overflow-x:hidden}
 .pipelines-list{display:flex;flex-direction:column;gap:0}
 .pipelines-list-item{display:flex;flex-direction:column;padding:12px;background:transparent;border:0;text-align:left;cursor:pointer;outline:0;border-left:3px solid transparent;color:var(--muted);transition:all 0.2s}
 .pipelines-list-item:hover{background:rgba(255,255,255,0.01);border-left-color:var(--accent-blue)}
@@ -423,7 +430,7 @@ button.nav-item{background:transparent;border:0;outline:0;cursor:pointer;width:1
 .pipelines-list-name{font-size:14px;font-weight:600;color:var(--text);margin-bottom:2px}
 .pipelines-list-stages{font-size:12px;color:var(--muted)}
 
-.pipelines-detail{display:flex;flex-direction:column;gap:24px}
+.pipelines-detail{display:flex;flex-direction:column;gap:24px;min-height:0;overflow-y:auto;overflow-x:hidden}
 .pipelines-detail-field{display:flex;flex-direction:column;gap:8px}
 .pipelines-detail-label{font-size:12px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em}
 .pipelines-detail-value{font-size:16px;color:var(--text);font-weight:500}
@@ -482,7 +489,3 @@ button.nav-item{background:transparent;border:0;outline:0;cursor:pointer;width:1
   .activity-page{max-width:none}
   .activity-toolbar{gap:12px}
 }
-
-
-
-
