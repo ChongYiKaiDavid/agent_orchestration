@@ -7,10 +7,16 @@ const AGENT_CAPABILITIES = {
     speed: 'medium',
     bestFor: ['full implementation', 'complex refactoring', 'multi-file changes', 'detailed coding tasks'],
   },
+  deepseek: {
+    strengths: ['code generation', 'planning', 'review', 'analysis', 'documentation'],
+    complexity: 'medium',
+    speed: 'fast',
+    bestFor: ['planning', 'code review', 'low to medium complexity coding', 'documentation'],
+  },
 };
 
 const COMPLEXITY_PATTERNS = {
-  high: /\b(complex|architecture|refactoring|migrate| redesign| overhaul|system-wide|distributed|microservice)\b/i,
+  high: /\b(complex|architecture|refactoring|migrate|redesign|overhaul|system-wide|distributed|microservice)\b/i,
   medium: /\b(feature|implement|create|build|add|update|modify|refactor|optimize|fix)\b/i,
   low: /\b(documentation|typo|comment|readme|simple|minor|small|quick)\b/i,
 };
@@ -24,12 +30,11 @@ const TYPE_PATTERNS = {
 
 function analyzeTaskComplexity(title, description) {
   const text = `${title} ${description || ''}`.toLowerCase();
-  
+
   if (COMPLEXITY_PATTERNS.high.test(text)) return 'high';
   if (COMPLEXITY_PATTERNS.medium.test(text)) return 'medium';
   if (COMPLEXITY_PATTERNS.low.test(text)) return 'low';
-  
-  // Default based on description length
+
   const descLength = (description || '').length;
   if (descLength > 500) return 'high';
   if (descLength > 100) return 'medium';
@@ -38,122 +43,56 @@ function analyzeTaskComplexity(title, description) {
 
 function analyzeTaskType(title, description) {
   const text = `${title} ${description || ''}`.toLowerCase();
-  
   for (const [type, pattern] of Object.entries(TYPE_PATTERNS)) {
     if (pattern.test(text)) return type;
   }
-  
-  return 'coding'; // Default to coding
+  return 'coding';
 }
 
 function detectKeywords(title, description) {
   const text = `${title} ${description || ''}`.toLowerCase();
   const allKeywords = Object.values(AGENT_CAPABILITIES).flatMap(a => a.strengths);
-  
   return allKeywords.filter(keyword => text.includes(keyword));
 }
 
-function selectBestAgent(taskType, complexity, keywords) {
-  const text = `${taskType} ${complexity} ${keywords.join(' ')}`;
-
-  // Force Ollama-only for testing purposes
-  if (process.env.OLLAMA_ONLY === 'true') {
-    return 'ollama';
+function selectBestAgent(taskType, complexity) {
+  // Planning and review — use DeepSeek (fast, good at analysis)
+  if (taskType === 'planning' || taskType === 'review' || taskType === 'docs') {
+    return 'deepseek';
   }
 
-  // For planning tasks, prefer devin
-  if (taskType === 'planning') {
-    return 'devin';
-  }
-
-  // For docs-only tasks, prefer devin
-  if (taskType === 'docs') {
-    return 'devin';
-  }
-
-  // For high complexity coding, prefer Devin
+  // High complexity coding — use Devin
   if (complexity === 'high' && taskType === 'coding') {
     return 'devin';
   }
 
-  // For review tasks, prefer devin (faster)
-  if (taskType === 'review') {
-    return 'devin';
-  }
-
-  // Default to Devin for coding tasks
+  // Low/medium complexity coding — use DeepSeek
   if (taskType === 'coding') {
-    return 'devin';
+    return complexity === 'low' ? 'deepseek' : 'devin';
   }
 
-  // Fallback to Devin for complex tasks
-  if (complexity === 'high') {
-    return 'devin';
-  }
-
-  // Default to hybrid pipeline for balanced approach
-  return 'hybrid';
+  return 'devin';
 }
 
-function selectBestPipeline(taskType, complexity, preferredAgent) {
-  // Ollama-only mode
-  if (process.env.OLLAMA_ONLY === 'true') {
-    // For Ollama-only mode, still use the standard pipelines but agent selection will pick ollama
-    if (complexity === 'high' || taskType === 'planning' || taskType === 'review') {
-      return 'plan-code-review';
-    }
-    if (taskType === 'coding') {
-      if (complexity === 'low') return 'code-only';
-      return 'plan-code-review';
-    }
-    return 'plan-code-review';
-  }
-
-  // High complexity tasks need full pipeline
-  if (complexity === 'high') {
-    return 'plan-code-review';
-  }
-
-  // Planning-only tasks
-  if (taskType === 'planning') {
-    return 'plan-code-review';
-  }
-
-  // Documentation tasks - single stage is fine
-  if (taskType === 'docs') {
-    return 'code-only';
-  }
-
-  // Review tasks
-  if (taskType === 'review') {
-    return 'code-only';
-  }
-
-  // Coding tasks
-  if (taskType === 'coding') {
-    if (complexity === 'low') {
-      return 'code-only';
-    }
-    return 'plan-code-review';
-  }
-
-  // Default to full pipeline
+function selectBestPipeline(taskType, complexity) {
+  if (complexity === 'high' || taskType === 'planning') return 'plan-code-review';
+  if (taskType === 'docs' || taskType === 'review') return 'code-only';
+  if (taskType === 'coding') return complexity === 'low' ? 'code-only' : 'plan-code-review';
   return 'plan-code-review';
 }
-
 
 export function autoSelectPipelineAndAgent(task) {
   const title = task.title || '';
   const description = task.description || '';
-  
+
   const complexity = analyzeTaskComplexity(title, description);
   const taskType = analyzeTaskType(title, description);
   const keywords = detectKeywords(title, description);
-  const preferredAgent = selectBestAgent(taskType, complexity, keywords);
-  const pipelineId = selectBestPipeline(taskType, complexity, preferredAgent);
-  
+  const preferredAgent = selectBestAgent(taskType, complexity);
+  const pipelineId = selectBestPipeline(taskType, complexity);
+
   const pipeline = fallbackPipelines.find(p => p.id === pipelineId);
-  
+
   return {
     pipelineId,
     pipeline,
@@ -170,47 +109,33 @@ export function autoSelectPipelineAndAgent(task) {
 export function autoSelectAgentForStage(stageId, task) {
   const title = task.title || '';
   const description = task.description || '';
-  
-  // Force Ollama-only for testing purposes
-  if (process.env.OLLAMA_ONLY === 'true') {
-    return 'ollama';
-  }
-  
+
   const complexity = analyzeTaskComplexity(title, description);
   const taskType = analyzeTaskType(title, description);
-  const keywords = detectKeywords(title, description);
-  
-  // Select agent based on stage and task characteristics
-  if (stageId === 'planning') {
-    // For planning, prefer Devin to avoid Gemini account issues.
-    return 'devin';
-  } else if (stageId === 'coding') {
-    // For coding, prefer Devin for complex tasks, Gemini for simple ones
-    if (complexity === 'high' || complexity === 'medium') {
-      return 'devin';
-    }
-    return 'devin';
-  } else if (stageId === 'reviewing') {
-    // For reviewing, prefer Gemini for speed
-    return 'devin';
+
+  if (stageId === 'planning' || stageId === 'reviewing') {
+    return 'deepseek';
   }
-  
-  // Default to Devin
+
+  if (stageId === 'coding') {
+    return complexity === 'high' ? 'devin' : 'deepseek';
+  }
+
   return 'devin';
 }
 
 function buildReasoningText(taskType, complexity, agent, pipeline) {
   const agents = {
-    devin: 'Devin (better for complex coding)',
-    ollama: 'Ollama (local AI)',
+    devin: 'Devin (best for complex coding)',
+    deepseek: 'DeepSeek (fast, good for planning and review)',
   };
-  
+
   const pipelines = {
     'plan-code-review': 'full 3-stage pipeline (plan → code → review)',
     'code-only': 'single-stage coding pipeline',
   };
-  
-  return `${agents[agent] || 'Auto-selected agent'} with ${pipelines[pipeline] || pipeline} for ${complexity} complexity ${taskType} task.`;
+
+  return `${agents[agent] || agent} with ${pipelines[pipeline] || pipeline} for ${complexity} complexity ${taskType} task.`;
 }
 
 export function listAgents() {

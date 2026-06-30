@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { decomposeEpic } from '../api';
-import { DecomposeEpicPayload } from '../api'; // Import the new type
+import type { DecomposeEpicPayload } from '../api';
+
+
 
 interface DraftTask {
   id: string;

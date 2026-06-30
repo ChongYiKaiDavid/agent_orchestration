@@ -483,4 +483,63 @@ router.get('/jira/issues', async (req, res) => {
   }
 });
 
+// Config routes — read/write .env.agent_orchestration
+const ENV_FILE = path.resolve(process.cwd(), '.env.agent_orchestration');
+
+const CONFIG_KEYS = [
+  'JIRA_SPACE_KEYS', 'JIRA_BASE_URL', 'JIRA_USER', 'JIRA_API_TOKEN',
+  'BITBUCKET_USERNAME', 'BITBUCKET_HTTPS_TOKEN', 'BITBUCKET_TOKEN', 'BITBUCKET_APP_PASSWORD',
+  'GITHUB_TOKEN',
+  'DEVIN_PATH', 'DEVIN_PERMISSION_MODE', 'DEVIN_MODEL',
+  'DEEPSEEK_API_KEY', 'DEEPSEEK_MODEL', 'DEEPSEEK_BASE_URL', 'DEEPSEEK_TIMEOUT_MS',
+  'FLASK_SOCKET_URL',
+];
+
+router.get('/config', (req, res) => {
+  const config = {};
+  for (const key of CONFIG_KEYS) {
+    config[key] = process.env[key] || '';
+  }
+  res.json(config);
+});
+
+router.post('/config', express.json(), (req, res) => {
+  const updates = req.body || {};
+
+  // Read existing file to preserve comments and unknown keys
+  let lines = fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf8').split(/\r?\n/) : [];
+
+  const written = new Set();
+
+  // Update existing lines
+  lines = lines.map(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return line;
+    const idx = trimmed.indexOf('=');
+    if (idx === -1) return line;
+    const key = trimmed.slice(0, idx).trim();
+    if (CONFIG_KEYS.includes(key) && key in updates) {
+      written.add(key);
+      return `${key}=${updates[key]}`;
+    }
+    return line;
+  });
+
+  // Append any new keys not already in file
+  for (const key of CONFIG_KEYS) {
+    if (key in updates && !written.has(key)) {
+      lines.push(`${key}=${updates[key]}`);
+    }
+  }
+
+  fs.writeFileSync(ENV_FILE, lines.join('\n'), 'utf8');
+
+  // Apply to live process.env immediately
+  for (const [key, value] of Object.entries(updates)) {
+    if (CONFIG_KEYS.includes(key)) process.env[key] = String(value);
+  }
+
+  res.json({ success: true });
+});
+
 export default router;

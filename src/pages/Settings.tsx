@@ -1,160 +1,132 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { fetchConfig, saveConfig } from '../api';
+
+type Config = Record<string, string>;
+
+const SECTIONS = [
+  {
+    id: 'jira',
+    label: 'Jira',
+    fields: [
+      { key: 'JIRA_BASE_URL', label: 'Base URL' },
+      { key: 'JIRA_USER', label: 'User Email' },
+      { key: 'JIRA_API_TOKEN', label: 'API Token', secret: true },
+      { key: 'JIRA_SPACE_KEYS', label: 'Space Keys (comma-separated)' },
+    ],
+  },
+  {
+    id: 'bitbucket',
+    label: 'Bitbucket',
+    fields: [
+      { key: 'BITBUCKET_USERNAME', label: 'Username' },
+      { key: 'BITBUCKET_HTTPS_TOKEN', label: 'HTTPS Token', secret: true },
+      { key: 'BITBUCKET_TOKEN', label: 'Access Token', secret: true },
+      { key: 'BITBUCKET_APP_PASSWORD', label: 'App Password', secret: true },
+    ],
+  },
+  {
+    id: 'github',
+    label: 'GitHub',
+    fields: [
+      { key: 'GITHUB_TOKEN', label: 'Personal Access Token', secret: true },
+    ],
+  },
+  {
+    id: 'devin',
+    label: 'Devin',
+    fields: [
+      { key: 'DEVIN_PATH', label: 'CLI Path' },
+      { key: 'DEVIN_PERMISSION_MODE', label: 'Permission Mode' },
+      { key: 'DEVIN_MODEL', label: 'Model (optional)' },
+    ],
+  },
+  {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    fields: [
+      { key: 'DEEPSEEK_API_KEY', label: 'API Key', secret: true },
+      { key: 'DEEPSEEK_MODEL', label: 'Model (default: deepseek-coder)' },
+      { key: 'DEEPSEEK_BASE_URL', label: 'Base URL (default: api.deepseek.com)' },
+      { key: 'DEEPSEEK_TIMEOUT_MS', label: 'Timeout ms (default: 120000)' },
+    ],
+  },
+  {
+    id: 'flask',
+    label: 'Flask Server',
+    fields: [
+      { key: 'FLASK_SOCKET_URL', label: 'Socket URL' },
+    ],
+  },
+];
 
 const SettingsPage: React.FC = () => {
-  const [projectName, setProjectName] = useState('acme-release-ops');
-  const [displayName, setDisplayName] = useState('Acme Release Ops');
-  const [gitEnabled, setGitEnabled] = useState(true);
-  const [targetBranch, setTargetBranch] = useState('main');
-  const [branchPattern, setBranchPattern] = useState('feature/{task_id}-{short_name}');
-  const [cliExecutable, setCliExecutable] = useState('copilot-runner');
-  const [model, setModel] = useState('gpt-5.4-mini');
+  const [config, setConfig] = useState<Config>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({ jira: true, deepseek: true });
+  const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const [expandedSections, setExpandedSections] = useState({
-    project: true,
-    git: true,
-    runtime: true,
-  });
+  useEffect(() => {
+    fetchConfig()
+      .then(setConfig)
+      .finally(() => setLoading(false));
+  }, []);
 
-  const toggleSection = (section: keyof typeof expandedSections) => {
-    setExpandedSections((prev) => ({
-      ...prev,
-      [section]: !prev[section],
-    }));
+  const toggle = (id: string) => setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
+
+  const set = (key: string, value: string) => {
+    setConfig(prev => ({ ...prev, [key]: value }));
+    setSaved(false);
   };
+
+  const handleSave = () => {
+    saveConfig(config).then(() => {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    });
+  };
+
+  if (loading) return <div className="settings-page"><p style={{ color: 'var(--muted)' }}>Loading...</p></div>;
 
   return (
     <div className="settings-page">
       <div className="settings-header">
         <h1 className="settings-title">Settings</h1>
-        <button className="settings-save-btn" type="button">
-          Save
+        <button className="settings-save-btn" type="button" onClick={handleSave}>
+          {saved ? '✓ Saved' : 'Save'}
         </button>
       </div>
 
       <div className="settings-content">
-        <div className="settings-section">
-          <button
-            type="button"
-            className="settings-section-header"
-            onClick={() => toggleSection('project')}
-          >
-            <ChevronDown
-              size={20}
-              className={`settings-chevron ${expandedSections.project ? 'open' : ''}`}
-            />
-            <span>Project</span>
+        {SECTIONS.map(section => (
+          <div className="settings-section" key={section.id}>
+            <button
+              type="button"
+              className="settings-section-header"
+              onClick={() => toggle(section.id)}
+            >
+              <ChevronDown size={20} className={`settings-chevron ${expanded[section.id] ? 'open' : ''}`} />
+              <span>{section.label}</span>
+            </button>
 
-          </button>
-          {expandedSections.project && (
-            <div className="settings-section-content">
-              <div className="settings-field">
-                <label className="settings-label" aria-label="Project Name">Project Name</label>
-
-                <input
-                  type="text"
-                  className="settings-input"
-                  value={projectName}
-                  onChange={(e) => setProjectName(e.target.value)}
-                />
+            {expanded[section.id] && (
+              <div className="settings-section-content">
+                {section.fields.map((field: any) => (
+                  <div className="settings-field" key={field.key}>
+                    <label className="settings-label">{field.label}</label>
+                    <input
+                      type={field.secret ? 'password' : 'text'}
+                      className="settings-input"
+                      value={config[field.key] || ''}
+                      onChange={e => set(field.key, e.target.value)}
+                      placeholder={field.key}
+                    />
+                  </div>
+                ))}
               </div>
-              <div className="settings-field">
-                <label className="settings-label">Display Name</label>
-                <input
-                  type="text"
-                  className="settings-input"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="settings-section">
-          <button
-            type="button"
-            className="settings-section-header"
-            onClick={() => toggleSection('git')}
-          >
-            <ChevronDown
-              size={20}
-              className={`settings-chevron ${expandedSections.git ? 'open' : ''}`}
-            />
-            <span>Git</span>
-          </button>
-          {expandedSections.git && (
-            <div className="settings-section-content">
-              <div className="settings-field">
-                <label className="settings-label">Enabled</label>
-                <div className="settings-toggle-wrap">
-                  <button
-                    type="button"
-                    className={`settings-toggle ${gitEnabled ? 'on' : 'off'}`}
-                    onClick={() => setGitEnabled(!gitEnabled)}
-                  >
-                    <span className="settings-toggle-circle" />
-                  </button>
-                </div>
-              </div>
-              <div className="settings-field">
-                <label className="settings-label">Target Branch</label>
-                <input
-                  type="text"
-                  className="settings-input"
-                  value={targetBranch}
-                  onChange={(e) => setTargetBranch(e.target.value)}
-                />
-              </div>
-              <div className="settings-field">
-                <label className="settings-label">Branch Pattern</label>
-                <input
-                  type="text"
-                  className="settings-input"
-                  value={branchPattern}
-                  onChange={(e) => setBranchPattern(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="settings-section">
-          <button
-            type="button"
-            className="settings-section-header"
-            onClick={() => toggleSection('runtime')}
-          >
-            <ChevronDown
-              size={20}
-              className={`settings-chevron ${expandedSections.runtime ? 'open' : ''}`}
-            />
-            <span>Runtime</span>
-          </button>
-          {expandedSections.runtime && (
-            <div className="settings-section-content">
-              <div className="settings-field">
-                <label className="settings-label">CLI Executable</label>
-                <input
-                  type="text"
-                  className="settings-input"
-                  value={cliExecutable}
-                  onChange={(e) => setCliExecutable(e.target.value)}
-                />
-              </div>
-              <div className="settings-field">
-                <label className="settings-label">Model</label>
-                <input
-                  type="text"
-                  className="settings-input"
-                  placeholder="Select a model"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

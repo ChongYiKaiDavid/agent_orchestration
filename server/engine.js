@@ -6,7 +6,7 @@ import os from 'os';
 import db from './db.js';
 import { getPipeline, listPipelines, getPipelineSync, listPipelinesSync } from './pipelines.js';
 import { runDevinStage, buildStagePrompt as buildDevinStagePrompt } from './agents/devin.js';
-import { runOllamaStage, buildStagePrompt as buildOllamaStagePrompt } from './agents/ollama.js';
+import { runDeepSeekStage, buildStagePrompt as buildDeepSeekStagePrompt } from './agents/deepseek.js';
 import { listAgents } from './agents.js';
 import { autoSelectPipelineAndAgent, autoSelectAgentForStage } from './auto-selector.js';
 import { attemptRebaseWithResolution } from './conflict-resolver.js';
@@ -698,8 +698,8 @@ export async function processTask(task) {
     let result;
 
     // Use the correct prompt builder based on auto-selected agent
-    if (selectedAgent === 'ollama') {
-      prompt = buildOllamaStagePrompt(stage, task, previousOutputs, repositoryPath);
+    if (selectedAgent === 'deepseek') {
+      prompt = buildDeepSeekStagePrompt(stage, task, previousOutputs, repositoryPath);
     } else {
       // devin and other agents
       prompt = buildDevinStagePrompt(stage, task, previousOutputs, repositoryPath);
@@ -767,7 +767,7 @@ export async function processTask(task) {
     const stageLogId = stage.id;
 
     // Agent fallback: if the first choice fails, try alternatives for this stage.
-    const fallbackAgents = ['devin', 'ollama'];
+    const fallbackAgents = ['devin', 'deepseek'];
     const fallbackOrder = [...new Set([selectedAgent, ...fallbackAgents])];
     const tried = new Set();
 
@@ -779,8 +779,8 @@ export async function processTask(task) {
 
 
       try {
-        if (agent === 'ollama') {
-          result = await runOllamaStage({
+        if (agent === 'deepseek') {
+          result = await runDeepSeekStage({
             prompt,
             stageId: stage.id,
             workspace: stageFolder,

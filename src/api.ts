@@ -18,7 +18,10 @@ async function parseJson(response: Response) {
   return response.json();
 }
 
+export type TaskCreatePayload = Record<string, any>;
+
 export async function createTask(payload: TaskCreatePayload) {
+
   const response = await fetch('/api/tasks', {
     method: 'POST',
     headers: defaultHeaders,
@@ -115,4 +118,19 @@ export async function createTaskFromJira(issue: {
   });
   return parseJson(response);
 }
+
+export async function fetchConfig() {
+  const response = await fetch('/api/config');
+  return parseJson(response);
+}
+
+export async function saveConfig(config: Record<string, string>) {
+  const response = await fetch('/api/config', {
+    method: 'POST',
+    headers: defaultHeaders,
+    body: JSON.stringify(config),
+  });
+  return parseJson(response);
+}
+
 

@@ -86,7 +86,8 @@ export const Terminal: React.FC<TerminalProps> = ({ taskId, mode = 'agent' }) =>
     });
 
     // Catch-all: log every event that arrives (excluding high-frequency terminal-output)
-    socket.onAny((eventName, ...args) => {
+    socket.onAny((eventName) => {
+
       if (eventName === 'terminal-output') return;
       term.writeln(`\x1b[1;90m[SOCKET EVENT: ${eventName}]\x1b[0m\r\n`);
     });
