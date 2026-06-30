@@ -30,6 +30,7 @@ import { getPRPollingStats, pollAllPRs, startPRPolling, stopPRPolling } from './
 const router = express.Router();
 
 import fs from 'fs';
+import { persistPipelineEdit, getEffectivePipeline } from './pipeline-edit-store.js';
 
 router.post('/agents', express.json(), (req, res) => {
   const skillData = req.body;
@@ -311,7 +312,9 @@ router.get('/events', (req, res) => {
 
 router.get('/pipelines', async (req, res) => {
   const pipelines = await getPipelineDefinitions();
-  res.json(pipelines);
+  // Apply any persisted edits (overrides) so UI sees latest configuration.
+  const effective = pipelines.map((p) => getEffectivePipeline(p));
+  res.json(effective);
 });
 
 router.get('/pipelines/:id', async (req, res) => {
@@ -320,7 +323,66 @@ router.get('/pipelines/:id', async (req, res) => {
   if (!pipeline) {
     return res.status(404).json({ error: 'Pipeline not found' });
   }
-  res.json(pipeline);
+  res.json(getEffectivePipeline(pipeline));
+});
+
+// Persist pipeline edits (stage agent etc.)
+router.put('/pipelines/:id', express.json(), async (req, res) => {
+  try {
+    const pipelineId = req.params.id;
+    const { stages, name, description, writeToYaml } = req.body || {};
+
+    if (!pipelineId) return res.status(400).json({ error: 'Missing pipeline id' });
+
+    // Load effective pipeline to validate shape.
+    const pipelines = await getPipelineDefinitions();
+    const base = pipelines.find((p) => p.id === pipelineId);
+    if (!base) return res.status(404).json({ error: 'Pipeline not found' });
+
+    const effective = getEffectivePipeline(base);
+
+    const updatedPipeline = {
+      ...effective,
+      ...(typeof name === 'string' ? { name } : null),
+      ...(typeof description === 'string' ? { description } : null),
+      ...(Array.isArray(stages) ? { stages } : null),
+      id: pipelineId,
+    };
+
+    const result = persistPipelineEdit({
+      pipelineId,
+      updatedPipeline,
+      writeToYaml: writeToYaml === true,
+    });
+
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// Run pipeline (creates a task and queues execution)
+router.post('/pipelines/:id/run', express.json(), async (req, res) => {
+  try {
+    const pipelineId = req.params.id;
+    const { title, description, repository, targetBranch, priority, jiraTicket } = req.body || {};
+
+    if (!title) return res.status(400).json({ error: 'Missing required field: title' });
+
+    const task = createTask({
+      title,
+      description: description || null,
+      pipeline: pipelineId,
+      repository: repository || null,
+      targetBranch: targetBranch || null,
+      priority: priority || 'medium',
+      jira_ticket: jiraTicket || null,
+    });
+
+    res.status(201).json(task);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 router.get('/agents', (req, res) => {

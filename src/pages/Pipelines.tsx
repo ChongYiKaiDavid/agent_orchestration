@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import { fetchPipelines } from '../api';
+import { fetchPipelines, updatePipeline } from '../api';
 
 const PipelinesPage: React.FC = () => {
   const [selectedPipeline, setSelectedPipeline] = useState('plan-code-review');
@@ -14,31 +14,35 @@ const PipelinesPage: React.FC = () => {
 
   // YAML preview is best-effort based on whatever the backend includes in the pipeline payload.
   // (No dedicated fetch endpoint is used.)
-  useEffect(() => {
-    fetchPipelines()
-      .then(async (items) => {
-        if (Array.isArray(items) && items.length > 0) {
-          setPipelines(items);
+  const load = async () => {
+    setIsLoading(true);
+    setPipelineYamlLoadError('');
+    try {
+      const items = await fetchPipelines();
+      if (Array.isArray(items) && items.length > 0) {
+        setPipelines(items);
 
-          const nextById: Record<string, string> = {};
-          for (const p of items) {
-            if (typeof p?.yaml === 'string') nextById[p.id] = p.yaml;
-            else if (typeof p?.definitionYaml === 'string') nextById[p.id] = p.definitionYaml;
-            else if (typeof p?.rawYaml === 'string') nextById[p.id] = p.rawYaml;
-          }
-          setYamlByPipelineId(nextById);
-        } else {
-          setPipelines([]);
-          setYamlByPipelineId({});
+        const nextById: Record<string, string> = {};
+        for (const p of items) {
+          if (typeof p?.yaml === 'string') nextById[p.id] = p.yaml;
+          else if (typeof p?.definitionYaml === 'string') nextById[p.id] = p.definitionYaml;
+          else if (typeof p?.rawYaml === 'string') nextById[p.id] = p.rawYaml;
         }
-      })
-      .catch((e) => {
-        setPipelineYamlLoadError(e instanceof Error ? e.message : String(e));
+        setYamlByPipelineId(nextById);
+      } else {
         setPipelines([]);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
+        setYamlByPipelineId({});
+      }
+    } catch (e) {
+      setPipelineYamlLoadError(e instanceof Error ? e.message : String(e));
+      setPipelines([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
   }, []);
 
   const current = pipelines.find((p) => p.id === selectedPipeline) || pipelines[0] || null;
@@ -46,7 +50,7 @@ const PipelinesPage: React.FC = () => {
   const currentStage =
     currentStages?.[selectedStage] ||
     currentStages?.[0] ||
-    ({ id: '', name: '', agent: '', verifyFiles: [] } as any);
+    ({ id: '', name: '', agent: '', summary: '', verifyFiles: [] } as any);
 
   if (isLoading) {
     return <div className="pipelines-page" />;
@@ -144,20 +148,36 @@ const PipelinesPage: React.FC = () => {
                 <select
                   className="pipelines-select"
                   value={String(currentStage.agent || '').toLowerCase()}
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     const next = e.target.value;
+
+                    const nextStages = (current?.stages || []).map((s: any, idx: number) => {
+                      if (idx !== selectedStage) return s;
+                      return { ...s, agent: next };
+                    });
+
                     setPipelines((prev) =>
                       prev.map((p) => {
                         if (p.id !== current?.id) return p;
                         return {
                           ...p,
-                          stages: (p.stages || []).map((s: any, idx: number) => {
-                            if (idx !== selectedStage) return s;
-                            return { ...s, agent: next };
-                          }),
+                          stages: nextStages,
                         };
                       })
                     );
+
+                    try {
+                      await updatePipeline(String(current?.id), {
+                        stages: nextStages,
+                        writeToYaml: true,
+                      });
+                      await load();
+                    } catch (err) {
+                      // keep UI optimistic, but surface error
+                  setPipelineYamlLoadError(err instanceof Error ? err.message : String(err));
+                  // eslint-disable-next-line no-console
+                  console.error(err);
+                    }
                   }}
                 >
                   <option value="devin">Devin</option>
@@ -254,4 +274,3 @@ const PipelinesPage: React.FC = () => {
 };
 
 export default PipelinesPage;
-

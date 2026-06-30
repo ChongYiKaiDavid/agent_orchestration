@@ -120,6 +120,11 @@ const fallbackPipelines = [
 let cachedPipelines = null;
 let loadedFromYaml = false;
 
+export function invalidatePipelinesCache() {
+  cachedPipelines = null;
+  loadedFromYaml = false;
+}
+
 /**
  * Load pipelines from YAML files or fallback to JavaScript definitions
  */

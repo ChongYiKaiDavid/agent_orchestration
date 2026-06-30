@@ -7,6 +7,9 @@ const pipelinesDir = path.resolve(process.cwd(), 'server/pipelines');
 /**
  * Load and parse a YAML pipeline configuration file
  */
+
+// Note: pipeline-loader is used by pipeline-loader->pipelines.js in this repo.
+// Cache invalidation happens there (server/pipelines.js).
 async function loadPipelineFile(filePath) {
   try {
     const content = await fs.readFile(filePath, 'utf8');

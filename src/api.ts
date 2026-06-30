@@ -64,6 +64,24 @@ export async function fetchPipeline(id: string) {
   return parseJson(response);
 }
 
+export async function updatePipeline(id: string, payload: any) {
+  const response = await fetch(`/api/pipelines/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: defaultHeaders,
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response);
+}
+
+export async function runPipeline(id: string, payload: any) {
+  const response = await fetch(`/api/pipelines/${encodeURIComponent(id)}/run`, {
+    method: 'POST',
+    headers: defaultHeaders,
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response);
+}
+
 export async function fetchAgents() {
   const response = await fetch('/api/agents');
   return parseJson(response);
@@ -132,5 +150,3 @@ export async function saveConfig(config: Record<string, string>) {
   });
   return parseJson(response);
 }
-
-

@@ -1,27 +1,23 @@
 id: plan-code-review
-name: "Plan - Code - Review"
-description: "Create a plan, implement the code, then review it."
+name: Plan - Code - Review
+description: Create a plan, implement the code, then review it.
 stages:
   - id: planning
     name: Planning
     agent: gemini
-    summary: "Create a requirements and design plan for the task."
+    summary: Create a requirements and design plan for the task.
     outputFiles:
       - planner.requirements.md
       - planner.design.md
   - id: coding
     name: Coding
-    agent: devin
-    summary: "Generate a code implementation based on the plan."
+    agent: deepseek
+    summary: Generate a code implementation based on the plan.
     outputFiles:
       - implementation.diff.md
   - id: reviewing
     name: Reviewing
     agent: gemini
-    summary: "Review the implementation and produce a verdict."
+    summary: Review the implementation and produce a verdict.
     outputFiles:
       - reviewer.review.md
-  - id: create_pr
-    name: "Create PR"
-    agent: devin
-    summary: "Creates a pull request on github."
