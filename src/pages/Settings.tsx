@@ -39,7 +39,9 @@ const SECTIONS: Section[] = [
     label: 'Git',
     fields: [
       { key: 'GIT_ENABLED', label: 'Enabled', type: 'toggle' },
-      { key: 'TARGET_BRANCH', label: 'Target Branch' },
+      { key: 'RELEASE_BRANCH_ENABLED', label: 'Enable Release Branch Workflow', type: 'toggle' },
+      { key: 'TARGET_BRANCH', label: 'Default Target Branch' },
+      { key: 'DEFAULT_RELEASE_BRANCH', label: 'Default Release Branch' },
       { key: 'BRANCH_PATTERN', label: 'Branch Pattern (optional)' },
     ],
   },
@@ -59,6 +61,7 @@ const SECTIONS: Section[] = [
       { key: 'JIRA_USER', label: 'User Email' },
       { key: 'JIRA_API_TOKEN', label: 'API Token', secret: true },
       { key: 'JIRA_SPACE_KEYS', label: 'Space Keys (comma-separated, optional)' },
+      { key: 'JIRA_DEMO_MODE', label: 'Use Built-in Demo Jira Issues', type: 'toggle' },
     ],
   },
   {

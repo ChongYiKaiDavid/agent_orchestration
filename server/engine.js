@@ -605,9 +605,35 @@ export function normalizePipelineId(value) {
   };
   return mapping[value] || value;
 }
+
+export function resolveTargetBranch(explicitBranch) {
+  const trimmed = (explicitBranch || '').toString().trim();
+  if (trimmed) {
+    return trimmed;
+  }
+
+  const releaseBranchEnabled = (() => {
+    const raw = (process.env.RELEASE_BRANCH_ENABLED ?? 'true').toString().trim().toLowerCase();
+    return !['false', '0', 'no', 'off', 'disabled'].includes(raw);
+  })();
+
+  if (!releaseBranchEnabled) {
+    return process.env.TARGET_BRANCH || null;
+  }
+
+  return process.env.DEFAULT_RELEASE_BRANCH || process.env.TARGET_BRANCH || 'main';
+}
+
 export function createTask(payload) {
   const id = crypto.randomUUID();
   const pipelineId = normalizePipelineId(payload.pipeline);
+  const resolvedTargetBranch = resolveTargetBranch(payload.targetBranch || payload.target_branch);
+  const releaseNote = resolvedTargetBranch
+    ? `Release branch workflow: target branch ${resolvedTargetBranch}.`
+    : 'Release branch workflow: no target branch was configured.';
+  const description = typeof payload.description === 'string' && payload.description.trim()
+    ? (payload.description.includes('Release branch workflow') ? payload.description : `${payload.description}\n\n${releaseNote}`)
+    : releaseNote;
   const insert = db.prepare(`
     INSERT INTO tasks (id, title, description, status, priority, repository, target_branch, pipeline_id, jira_ticket, retry_count, created_at, updated_at)
     VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, 0, ?, ?)
@@ -615,10 +641,10 @@ export function createTask(payload) {
   insert.run(
     id,
     payload.title,
-    payload.description || null,
+    description,
     payload.priority || 'medium',
     payload.repository || null,
-    payload.targetBranch || null,
+    resolvedTargetBranch,
     pipelineId,
     payload.jira_ticket || null,
     now(),

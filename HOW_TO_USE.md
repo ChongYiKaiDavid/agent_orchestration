@@ -369,7 +369,7 @@ Close/stop these terminals if they’re still running:
 Flask Socket.IO (python app.py in server-flask/)
 Frontend (npm run dev)
 Backend (npm run server)
-Worker (npm run worker)
+Worker (npm run worker)11111111111111111111111111111111111/
 1) Terminal 1 — Flask Socket.IO (PORT 5002)
 
 cd "c:/Users/Gary Chong/Downloads/Telegram Desktop/agent_orchestration/agent_orchestration/server-flask"

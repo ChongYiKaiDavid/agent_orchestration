@@ -5,6 +5,7 @@ import {
   createTask,
   getTaskById,
   listTasks,
+  resolveTargetBranch,
   getTaskExecution,
   getStagesForExecution,
   getArtifactsForExecution,
@@ -28,6 +29,39 @@ import { getOrphanRecoveryStats, recoverOrphanedTasks } from './orphan-recovery.
 import { getPRPollingStats, pollAllPRs, startPRPolling, stopPRPolling } from './pr-poller.js';
 
 const router = express.Router();
+
+const DEMO_JIRA_ISSUES = [
+  {
+    key: 'DEMO-101',
+    summary: 'Add release branch gating for task creation',
+    status: 'In Progress',
+    statusCategory: 'indeterminate',
+    priority: 'High',
+    assignee: 'Demo Agent',
+    issueType: 'Story',
+    url: 'https://example.com/browse/DEMO-101',
+    source: 'builtin-demo',
+    description: 'Introduce release-branch defaults for tasks and make the workflow visible in the dashboard.',
+  },
+  {
+    key: 'DEMO-102',
+    summary: 'Expose task target branch and PR metadata on the dashboard',
+    status: 'New',
+    statusCategory: 'new',
+    priority: 'Medium',
+    assignee: 'Demo Ops',
+    issueType: 'Task',
+    url: 'https://example.com/browse/DEMO-102',
+    source: 'builtin-demo',
+    description: 'Surface the target branch, PR link, and release workflow details for each task.',
+  },
+];
+
+function readBooleanEnv(name, fallback = false) {
+  const raw = (process.env[name] ?? '').toString().trim().toLowerCase();
+  if (!raw) return fallback;
+  return !['false', '0', 'no', 'off', 'disabled'].includes(raw);
+}
 
 import fs from 'fs';
 import { persistPipelineEdit, getEffectivePipeline } from './pipeline-edit-store.js';
@@ -174,13 +208,14 @@ router.post('/tasks/from-jira', express.json(), (req, res) => {
     'Treat this Jira issue as the source of truth. Implement the required behavior and/or provide the exact code changes needed to satisfy the description.'
   ].filter(Boolean).join('\n\n');
 
+  const resolvedTargetBranch = resolveTargetBranch(targetBranch);
   const task = createTask({
     title: jiraTitle,
     description: jiraDescriptionBlock,
     pipeline: 'auto',
     priority: priority || 'medium',
     repository: repository || null,
-    targetBranch: targetBranch || null,
+    targetBranch: resolvedTargetBranch,
     jira_ticket: key || null,
   });
 
@@ -237,6 +272,7 @@ Format example:
     const createdTasks = [];
     for (const subtask of subtasks) {
       // Auto-select pipeline for each subtask
+      const resolvedTargetBranch = resolveTargetBranch(targetBranch);
       const task = createTask({
         title: subtask.title || 'Untitled Subtask',
         description: subtask.description || '',
@@ -244,7 +280,7 @@ Format example:
         priority: 'medium',
         // Preserve repo context if it was provided with the epic request
         repository: repository || null,
-        targetBranch: targetBranch || null,
+        targetBranch: resolvedTargetBranch,
         jira_ticket: jiraTicket || null,
       });
       createdTasks.push(task);
@@ -279,8 +315,13 @@ router.post('/tasks', express.json(), (req, res) => {
     payload.jira_ticket = payload.jiraTicket;
   }
 
+  const resolvedTargetBranch = resolveTargetBranch(payload.targetBranch || payload.target_branch);
   console.log('[POST /tasks] After processing, jira_ticket:', payload.jira_ticket);
-  const task = createTask(payload);
+  const task = createTask({
+    ...payload,
+    targetBranch: resolvedTargetBranch,
+    target_branch: resolvedTargetBranch,
+  });
   res.status(201).json(task);
 });
 
@@ -369,12 +410,13 @@ router.post('/pipelines/:id/run', express.json(), async (req, res) => {
 
     if (!title) return res.status(400).json({ error: 'Missing required field: title' });
 
+    const resolvedTargetBranch = resolveTargetBranch(targetBranch);
     const task = createTask({
       title,
       description: description || null,
       pipeline: pipelineId,
       repository: repository || null,
-      targetBranch: targetBranch || null,
+      targetBranch: resolvedTargetBranch,
       priority: priority || 'medium',
       jira_ticket: jiraTicket || null,
     });
@@ -490,6 +532,11 @@ router.get('/jira/issues', async (req, res) => {
   })();
   const user = process.env.JIRA_USER;
   const token = process.env.JIRA_API_TOKEN;
+  const useDemoIssues = readBooleanEnv('JIRA_DEMO_MODE', true);
+
+  if (useDemoIssues && (!baseUrl || !user || !token)) {
+    return res.json(DEMO_JIRA_ISSUES);
+  }
 
   if (!baseUrl || !user || !token) {
     return res.status(503).json({ error: 'Jira credentials not configured. Set JIRA_BASE_URL, JIRA_USER, and JIRA_API_TOKEN.' });
@@ -549,7 +596,8 @@ router.get('/jira/issues', async (req, res) => {
 const ENV_FILE = path.resolve(process.cwd(), '.env.agent_orchestration');
 
 const CONFIG_KEYS = [
-  'JIRA_SPACE_KEYS', 'JIRA_BASE_URL', 'JIRA_USER', 'JIRA_API_TOKEN',
+  'JIRA_SPACE_KEYS', 'JIRA_BASE_URL', 'JIRA_USER', 'JIRA_API_TOKEN', 'JIRA_DEMO_MODE',
+  'RELEASE_BRANCH_ENABLED', 'DEFAULT_RELEASE_BRANCH', 'TARGET_BRANCH',
   'BITBUCKET_USERNAME', 'BITBUCKET_HTTPS_TOKEN', 'BITBUCKET_TOKEN', 'BITBUCKET_APP_PASSWORD',
   'GITHUB_TOKEN',
   'DEVIN_PATH', 'DEVIN_PERMISSION_MODE', 'DEVIN_MODEL',
