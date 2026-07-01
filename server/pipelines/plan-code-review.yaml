@@ -4,20 +4,53 @@ description: Create a plan, implement the code, then review it.
 stages:
   - id: planning
     name: Planning
-    agent: gemini
+    agent: deepseek
     summary: Create a requirements and design plan for the task.
     outputFiles:
       - planner.requirements.md
       - planner.design.md
+    cli:
+      command: deepseek-cli
+      args:
+        - --prompt
+        - "{prompt}"
+        - --output
+        - "{outputFile}"
+      env:
+        DEEPSEEK_API_KEY: "{DEEPSEEK_API_KEY}"
+        DEEPSEEK_MODEL: deepseek-coder
+        DEEPSEEK_BASE_URL: "{DEEPSEEK_BASE_URL}"
+        DEEPSEEK_TIMEOUT_MS: "{DEEPSEEK_TIMEOUT_MS}"
   - id: coding
     name: Coding
-    agent: deepseek
+    agent: devin
     summary: Generate a code implementation based on the plan.
     outputFiles:
       - implementation.diff.md
+    cli:
+      command: devin
+      args:
+        - --prompt-file
+        - "{promptFile}"
+        - --print
+      env:
+        DEVIN_PERMISSION_MODE: dangerous
+        DEVIN_MODEL: claude-3-opus-20240229
   - id: reviewing
     name: Reviewing
-    agent: gemini
+    agent: deepseek
     summary: Review the implementation and produce a verdict.
     outputFiles:
       - reviewer.review.md
+    cli:
+      command: deepseek-cli
+      args:
+        - --prompt
+        - "{prompt}"
+        - --output
+        - "{outputFile}"
+      env:
+        DEEPSEEK_API_KEY: "{DEEPSEEK_API_KEY}"
+        DEEPSEEK_MODEL: deepseek-coder
+        DEEPSEEK_BASE_URL: "{DEEPSEEK_BASE_URL}"
+        DEEPSEEK_TIMEOUT_MS: "{DEEPSEEK_TIMEOUT_MS}"

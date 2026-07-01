@@ -8,7 +8,7 @@ if (!repository) {
 }
 
 // Pick a pipeline that matches your earlier test request.
-const pipeline = process.env.TASK_PIPELINE || 'ollama-code-only';
+const pipeline = process.env.TASK_PIPELINE || 'code-only';
 const targetBranch = process.env.TASK_TARGET_BRANCH || null;
 
 // If you want a fixed title/description you can set them too.

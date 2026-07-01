@@ -1,13 +1,11 @@
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { spawn, spawnSync } from 'child_process';
 import os from 'os';
 import db from './db.js';
 import { getPipeline, listPipelines, getPipelineSync, listPipelinesSync } from './pipelines.js';
-import { runDevinStage, buildStagePrompt as buildDevinStagePrompt } from './agents/devin.js';
-import { runDeepSeekStage, buildStagePrompt as buildDeepSeekStagePrompt } from './agents/deepseek.js';
-import { runGeminiStage, buildStagePrompt as buildGeminiStagePrompt } from './agents/gemini.js';
 
 import { listAgents } from './agents.js';
 import { autoSelectPipelineAndAgent, autoSelectAgentForStage } from './auto-selector.js';
@@ -16,6 +14,217 @@ import io from 'socket.io-client';
 
 
 export const workspaceRoot = path.resolve(process.cwd(), process.env.TEST_WORKSPACE_ROOT || 'server/workspaces');
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Generic CLI executor - reads CLI config from pipeline stage
+// ──────────────────────────────────────────────────────────────────────────────
+function substituteEnvVars(value) {
+  if (typeof value !== 'string') return value;
+  return value.replace(/\{([^}]+)\}/g, (match, varName) => {
+    return process.env[varName] || match;
+  });
+}
+
+async function runGenericCLIStage({ stage, prompt, workspace, onStdout, onStderr }) {
+  try {
+    const cliConfig = stage.cli;
+    if (!cliConfig) {
+      throw new Error(`Stage ${stage.id} has no CLI configuration`);
+    }
+
+    let command = cliConfig.command;
+    let args = cliConfig.args ? [...cliConfig.args] : [];
+    const envVars = cliConfig.env ? { ...cliConfig.env } : {};
+
+    // Substitute environment variables
+    command = substituteEnvVars(command);
+    args = args.map(arg => substituteEnvVars(arg));
+    for (const [key, value] of Object.entries(envVars)) {
+      envVars[key] = substituteEnvVars(value);
+    }
+
+    // Write prompt file if needed
+    const promptFile = path.join(workspace, 'prompt.txt');
+    await fs.writeFile(promptFile, prompt, 'utf8');
+
+    // Replace {promptFile} placeholder
+    args = args.map(arg => arg.replace('{promptFile}', promptFile));
+    args = args.map(arg => arg.replace('{prompt}', prompt));
+
+    const env = {
+      ...process.env,
+      ...envVars,
+    };
+
+    const repoPath = path.join(path.dirname(workspace), 'repo');
+
+    return new Promise((resolve) => {
+      if (process.platform === 'win32' && command.includes(' ')) {
+        command = `"${command}"`;
+      }
+      const finalArgs = args.map(arg => (process.platform === 'win32' && arg.includes(' ')) ? `"${arg}"` : arg);
+      const child = spawn(command, finalArgs, { cwd: workspace, env, shell: process.platform === 'win32' });
+
+      let stdout = '';
+      let stderr = '';
+      let completed = false;
+
+      child.stdout.on('data', (chunk) => {
+        const text = chunk.toString();
+        stdout += text;
+        if (onStdout) onStdout(text);
+
+        const completionTokens = ['<<<PLANNER_COMPLETE>>>', '<<<CODER_COMPLETE>>>', '<<<REVIEWER_COMPLETE>>>'];
+        for (const token of completionTokens) {
+          if (stdout.includes(token)) {
+            if (!completed) {
+              completed = true;
+              fs.writeFile(path.join(workspace, '.done'), token).catch(() => {});
+              setTimeout(() => {
+                try {
+                  child.kill('SIGTERM');
+                } catch (e) {}
+              }, 500);
+            }
+          }
+        }
+      });
+
+      child.stderr.on('data', (chunk) => {
+        const text = chunk.toString();
+        stderr += text;
+        if (onStderr) onStderr(text);
+      });
+
+      child.on('close', (code) => {
+        const output = stdout.trim();
+        
+        // Write files from output if this is a coding stage
+        if (stage.id === 'coding') {
+          try {
+            const files = parseFileBlocks(output);
+            const written = [];
+            const repoAbs = path.resolve(repoPath);
+
+            for (const [filename, content] of Object.entries(files)) {
+              try {
+                if (path.isAbsolute(filename) || filename.includes('..')) {
+                  console.error(`[genericCLI] Refusing to write outside repo. filename='${filename}'`);
+                  continue;
+                }
+
+                const filePath = path.resolve(path.join(repoAbs, filename));
+                if (!filePath.startsWith(repoAbs + path.sep) && filePath !== repoAbs) {
+                  console.error(`[genericCLI] Refusing to write outside repo after resolution. filename='${filename}' resolved='${filePath}'`);
+                  continue;
+                }
+
+                fs.mkdirSync(path.dirname(filePath), { recursive: true });
+                fs.writeFileSync(filePath, content, 'utf8');
+                written.push(filename);
+              } catch (e) {
+                console.error(`[genericCLI] Failed to write file ${filename}:`, e?.message || String(e));
+              }
+            }
+
+            if (written.length > 0) {
+              onStdout?.(`\n[WRITTEN ${written.length} files: ${written.join(', ')}]\n`);
+            }
+          } catch {}
+        }
+
+        resolve({
+          exitCode: code,
+          output,
+          logs: stderr.trim(),
+        });
+      });
+
+      child.on('error', (error) => {
+        resolve({
+          exitCode: 1,
+          output: '',
+          logs: `Failed to start CLI command '${command}': ${error.message}`,
+        });
+      });
+    });
+  } catch (error) {
+    return {
+      exitCode: 1,
+      output: '',
+      logs: error.message,
+    };
+  }
+}
+
+function parseFileBlocks(output) {
+  const files = {};
+  const fileRegex = /FILE:\s*([^\s\n]+)\s*\n\s*---\s*\n([\s\S]*?)\s*\n\s*---\s*\n/g;
+  let match;
+  while ((match = fileRegex.exec(output)) !== null) {
+    const filename = match[1].trim();
+    const content = match[2].trim();
+    files[filename] = content;
+  }
+  return files;
+}
+
+// Build stage prompt from skill configuration
+function buildStagePromptFromSkill(stage, task, previousOutputs = [], repositoryPath = null) {
+  const skillsDir = path.join(process.cwd(), 'server', 'skills');
+  
+  // Map stage IDs to skill file names
+  const stageToSkillMap = {
+    'planning': 'planner',
+    'coding': 'coder',
+    'reviewing': 'reviewer',
+  };
+  
+  const skillId = stageToSkillMap[stage.id] || stage.id;
+  const skillFile = path.join(skillsDir, `${skillId}.json`);
+
+  try {
+    if (fsSync.existsSync(skillFile)) {
+      const skillConfig = JSON.parse(fsSync.readFileSync(skillFile, 'utf8'));
+      const promptTemplate = skillConfig.promptTemplate || '';
+
+      // Build context information
+      const context = [
+        `Stage: ${stage.name}`,
+        `Task: ${task.title}`,
+        `Repository: ${task.repository || 'not specified'}`,
+        `Target branch: ${task.target_branch || 'not specified'}`,
+        repositoryPath ? `Repository path: ${repositoryPath}` : null,
+        '',
+        `Description: ${task.description || 'No additional description provided.'}`,
+        '',
+      ].filter(Boolean).join('\n');
+
+      // Add previous outputs if any
+      let previousContext = '';
+      if (previousOutputs.length > 0) {
+        previousContext = '\nPrevious outputs:\n' + previousOutputs.join('\n\n') + '\n';
+      }
+
+      return context + previousContext + '\n' + promptTemplate;
+    }
+  } catch (error) {
+    console.error(`[buildStagePromptFromSkill] Error loading skill config for ${skillId}:`, error);
+  }
+
+  // Fallback to basic prompt
+  return [
+    `Stage: ${stage.name}`,
+    `Task: ${task.title}`,
+    `Repository: ${task.repository || 'not specified'}`,
+    `Target branch: ${task.target_branch || 'not specified'}`,
+    repositoryPath ? `Repository path: ${repositoryPath}` : null,
+    '',
+    `Description: ${task.description || 'No additional description provided.'}`,
+    '',
+    'Complete the current stage carefully.',
+  ].filter(Boolean).join('\n');
+}
 
 // Track which tasks have spawned terminals to avoid duplicates
 const _spawnedTerminals = new Set();
@@ -686,11 +895,10 @@ export async function processTask(task) {
   for (const stage of pipeline.stages) {
     const stageId = `${executionId}-${stage.id}`;
     const stageFolder = await ensureWorkspace(task.id, stage.id);
-    
+
     // Auto-select agent for this stage based on task characteristics
     const selectedAgent = autoSelectAgentForStage(stage.id, task);
-    // Hard guardrail: remove legacy 'ollama' agent selection
-    const agent = selectedAgent === 'ollama' ? 'gemini' : selectedAgent;
+    const agent = selectedAgent;
 
     console.log(`[processTask] Stage '${stage.id}' auto-selected agent: ${selectedAgent}`);
     
@@ -702,15 +910,8 @@ export async function processTask(task) {
     let prompt;
     let result;
 
-    // Use the correct prompt builder based on auto-selected agent
-    if (agent === 'deepseek') {
-      prompt = buildDeepSeekStagePrompt(stage, task, previousOutputs, repositoryPath);
-    } else if (agent === 'gemini') {
-      prompt = buildGeminiStagePrompt(stage, task, previousOutputs, repositoryPath);
-    } else {
-      // devin and other agents
-      prompt = buildDevinStagePrompt(stage, task, previousOutputs, repositoryPath);
-    }
+    // Build prompt using skill configuration
+    prompt = buildStagePromptFromSkill(stage, task, previousOutputs, repositoryPath);
 
 
     // Hard guarantee for coding stage: enforce exact FILE:/---/--- format in the prompt.
@@ -784,36 +985,15 @@ export async function processTask(task) {
       if (tried.has(agent)) continue;
       tried.add(agent);
 
-
-
-
       try {
-        if (agent === 'deepseek') {
-          result = await runDeepSeekStage({
-            prompt,
-            stageId: stage.id,
-            workspace: stageFolder,
-            onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
-            onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
-          });
-        } else if (agent === 'gemini') {
-          result = await runGeminiStage({
-            prompt,
-            stageId: stage.id,
-            workspace: stageFolder,
-            onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
-            onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
-          });
-        } else {
-          // devin default
-          result = await runDevinStage({
-            prompt,
-            stageId: stage.id,
-            workspace: stageFolder,
-            onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
-            onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
-          });
-        }
+        // Use generic CLI executor that reads from pipeline stage configuration
+        result = await runGenericCLIStage({
+          stage,
+          prompt,
+          workspace: stageFolder,
+          onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
+          onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
+        });
 
         // If agent exited successfully, stop trying.
         if (result && result.exitCode === 0) {
