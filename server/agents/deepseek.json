@@ -1,0 +1,21 @@
+{
+  "id": "deepseek",
+  "name": "DeepSeek",
+  "description": "DeepSeek AI agent",
+  "cli": {
+    "command": "deepseek-cli",
+    "args": ["--prompt", "{prompt}", "--output", "{outputFile}"],
+    "env": {
+      "DEEPSEEK_API_KEY": "{DEEPSEEK_API_KEY}",
+      "DEEPSEEK_MODEL": "deepseek-coder",
+      "DEEPSEEK_BASE_URL": "{DEEPSEEK_BASE_URL}",
+      "DEEPSEEK_TIMEOUT_MS": "{DEEPSEEK_TIMEOUT_MS}"
+    }
+  },
+  "capabilities": {
+    "strengths": ["code generation", "planning", "review", "analysis", "documentation"],
+    "complexity": "medium",
+    "speed": "fast",
+    "bestFor": ["planning", "code review", "low to medium complexity coding", "documentation"]
+  }
+}

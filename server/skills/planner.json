@@ -9,12 +9,5 @@
   "writes": ["planner.requirements.md", "planner.design.md"],
   "completionToken": "<<<PLANNER_COMPLETE>>>",
   "promptTemplate": "Produce a short requirements document and a design summary for this task. Write two artifacts: planner.requirements.md and planner.design.md. Format the response clearly and include a final line with VERDICT: GO.",
-  "cli": {
-    "command": "devin",
-    "args": ["--prompt-file", "{promptFile}", "--print"],
-    "env": {
-      "DEVIN_PERMISSION_MODE": "dangerous",
-      "DEVIN_MODEL": "claude-3-opus-20240229"
-    }
-  }
+  "agentId": "deepseek"
 }

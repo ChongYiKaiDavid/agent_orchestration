@@ -146,7 +146,7 @@ const AgentsPage: React.FC = () => {
                 onClick={() => handleSelect(agent.id)}
                 type="button"
               >
-                <div className="agents-list-id">{agent.id}</div>
+                <div className="agents-list-id">{agent.label}</div>
                 <div className="agents-list-label">{agent.displayName}</div>
                 <div className="agents-list-desc">{agent.description}</div>
               </button>

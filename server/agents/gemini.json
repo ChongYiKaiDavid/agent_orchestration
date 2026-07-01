@@ -1,0 +1,19 @@
+{
+  "id": "gemini",
+  "name": "Gemini",
+  "description": "Google Gemini AI agent",
+  "cli": {
+    "command": "gemini-cli",
+    "args": ["--prompt", "{prompt}", "--output", "{outputFile}"],
+    "env": {
+      "GEMINI_API_KEY": "{GEMINI_API_KEY}",
+      "GEMINI_MODEL": "gemini-pro"
+    }
+  },
+  "capabilities": {
+    "strengths": ["code generation", "planning", "review", "analysis", "documentation"],
+    "complexity": "medium",
+    "speed": "fast",
+    "bestFor": ["planning", "code review", "low to medium complexity coding", "documentation"]
+  }
+}

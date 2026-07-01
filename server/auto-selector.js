@@ -1,25 +1,56 @@
 import { fallbackPipelines } from './pipelines.js';
+import fs from 'fs';
+import path from 'path';
 
-const AGENT_CAPABILITIES = {
-  devin: {
-    strengths: ['coding', 'refactoring', 'bug fixing', 'testing', 'debugging', 'implementation', 'code review', 'architecture'],
-    complexity: 'high',
-    speed: 'medium',
-    bestFor: ['full implementation', 'complex refactoring', 'multi-file changes', 'detailed coding tasks'],
-  },
-  gemini: {
-    strengths: ['code generation', 'planning', 'review', 'analysis', 'documentation'],
-    complexity: 'medium',
-    speed: 'fast',
-    bestFor: ['planning', 'code review', 'low to medium complexity coding', 'documentation'],
-  },
-  deepseek: {
-    strengths: ['code generation', 'planning', 'review', 'analysis', 'documentation'],
-    complexity: 'medium',
-    speed: 'fast',
-    bestFor: ['planning', 'code review', 'low to medium complexity coding', 'documentation'],
-  },
-};
+// Load agent configurations dynamically from server/agents directory
+function loadAgentCapabilities() {
+  const agentsDir = path.join(process.cwd(), 'server', 'agents');
+  const capabilities = {};
+
+  if (!fs.existsSync(agentsDir)) {
+    console.warn('[auto-selector] Agents directory not found, using fallback capabilities');
+    return getFallbackCapabilities();
+  }
+
+  try {
+    const files = fs.readdirSync(agentsDir).filter(f => f.endsWith('.json'));
+    for (const file of files) {
+      const filePath = path.join(agentsDir, file);
+      const content = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      capabilities[content.id] = content.capabilities || {};
+    }
+    console.log(`[auto-selector] Loaded ${Object.keys(capabilities).length} agent configurations`);
+    return capabilities;
+  } catch (error) {
+    console.error('[auto-selector] Error loading agent configurations:', error);
+    return getFallbackCapabilities();
+  }
+}
+
+function getFallbackCapabilities() {
+  return {
+    devin: {
+      strengths: ['coding', 'refactoring', 'bug fixing', 'testing', 'debugging', 'implementation', 'code review', 'architecture'],
+      complexity: 'high',
+      speed: 'medium',
+      bestFor: ['full implementation', 'complex refactoring', 'multi-file changes', 'detailed coding tasks'],
+    },
+    gemini: {
+      strengths: ['code generation', 'planning', 'review', 'analysis', 'documentation'],
+      complexity: 'medium',
+      speed: 'fast',
+      bestFor: ['planning', 'code review', 'low to medium complexity coding', 'documentation'],
+    },
+    deepseek: {
+      strengths: ['code generation', 'planning', 'review', 'analysis', 'documentation'],
+      complexity: 'medium',
+      speed: 'fast',
+      bestFor: ['planning', 'code review', 'low to medium complexity coding', 'documentation'],
+    },
+  };
+}
+
+let AGENT_CAPABILITIES = loadAgentCapabilities();
 
 
 const COMPLEXITY_PATTERNS = {
