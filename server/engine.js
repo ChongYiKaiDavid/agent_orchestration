@@ -1158,7 +1158,15 @@ export async function processTask(task) {
         }
 
         // If agent exited successfully, stop trying.
-        if (result && result.exitCode === 0) {
+        // Also treat a completion token in the output as success even if exit code is non-zero —
+        // some CLI tools (e.g. Gemini) exit non-zero after producing valid output.
+        const completionTokens = ['<<<PLANNER_COMPLETE>>>', '<<<CODER_COMPLETE>>>', '<<<REVIEWER_COMPLETE>>>'];
+        const hasCompletionToken = completionTokens.some(t => result?.output?.includes(t));
+        if (result && (result.exitCode === 0 || hasCompletionToken)) {
+          if (hasCompletionToken && result.exitCode !== 0) {
+            console.log(`[processTask] stage ${stage.id}: agent '${agent}' exited non-zero but completion token found — treating as success.`);
+            result.exitCode = 0;
+          }
           break;
         }
 
@@ -1240,6 +1248,17 @@ export async function processTask(task) {
       // treat it as GO to avoid endless retries.
       finalVerdict = verdict || (result.exitCode === 0 ? 'GO' : 'FAIL');
 
+      // Stream the verdict outcome to the live terminal
+      const verdictColors = {
+        GO:        '\x1b[1;32m',  // green
+        FAIL:      '\x1b[1;33m',  // yellow
+        SPEC_FAIL: '\x1b[1;35m',  // magenta
+        ESCALATE:  '\x1b[1;31m',  // red
+      };
+      const verdictColor = verdictColors[finalVerdict] || '\x1b[1;37m';
+      await streamLog(task.id, stageLogId, 'system',
+        `${verdictColor}>>> Reviewer verdict: ${finalVerdict}\x1b[0m\n`, true);
+
       if (finalVerdict !== 'GO') {
         if (task.retry_count < (task.max_retries || 3)) {
           let nextStatus;
@@ -1249,18 +1268,26 @@ export async function processTask(task) {
           if (finalVerdict === 'ESCALATE') {
             nextStatus = 'escalated';
             retryStage = null;
+            await streamLog(task.id, stageLogId, 'system',
+              `\x1b[1;31m>>> ESCALATE: task requires human intervention.\x1b[0m\n`, true);
           } else if (finalVerdict === 'SPEC_FAIL') {
-            // Specification failed - route back to PLANNER
+            // Specification failed — route back to planning
             nextStatus = 'requeued';
             retryStage = 'planning';
+            await streamLog(task.id, stageLogId, 'system',
+              `\x1b[1;35m>>> SPEC_FAIL: requirements unclear — requeuing from planning stage (retry ${task.retry_count + 1}/${task.max_retries || 3}).\x1b[0m\n`, true);
           } else if (finalVerdict === 'FAIL') {
-            // Implementation failed - route back to CODER
+            // Implementation failed — route back to coding
             nextStatus = 'requeued';
             retryStage = 'coding';
+            await streamLog(task.id, stageLogId, 'system',
+              `\x1b[1;33m>>> FAIL: implementation issues found — requeuing from coding stage (retry ${task.retry_count + 1}/${task.max_retries || 3}).\x1b[0m\n`, true);
           } else {
-            // Default to queued for unknown verdicts
+            // Default to coding for unknown verdicts
             nextStatus = 'requeued';
             retryStage = 'coding';
+            await streamLog(task.id, stageLogId, 'system',
+              `\x1b[1;33m>>> Unknown verdict '${finalVerdict}' — requeuing from coding stage.\x1b[0m\n`, true);
           }
           
           db.prepare('UPDATE tasks SET status = ?, retry_count = ?, updated_at = ? WHERE id = ?')
@@ -1281,6 +1308,9 @@ export async function processTask(task) {
           });
         }
         failed = true;
+      } else {
+        await streamLog(task.id, stageLogId, 'system',
+          `\x1b[1;32m>>> GO: review passed — proceeding.\x1b[0m\n`, true);
       }
     }
     previousOutputs.push(stage.id);

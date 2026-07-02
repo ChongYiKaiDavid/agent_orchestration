@@ -290,6 +290,41 @@ rm -rf server/workspaces/*
 
 ---
 
+## 11. Completion Tokens and Verdict-Based Routing
+
+### Completion Tokens
+
+Each agent signals the end of its stage by printing a completion token to stdout:
+
+| Stage | Token |
+|-------|-------|
+| Planning | `<<<PLANNER_COMPLETE>>>` |
+| Coding | `<<<CODER_COMPLETE>>>` |
+| Reviewing | `<<<REVIEWER_COMPLETE>>>` |
+
+The worker monitors agent output for these tokens in real-time. When a token is detected, the stage is marked as complete — even if the process exits with a non-zero code (some CLI tools like Gemini exit non-zero after producing valid output). This prevents false failures caused by CLI exit code quirks.
+
+### Verdict-Based Routing
+
+After the **reviewing** stage, the agent must output a verdict line:
+
+```
+VERDICT: GO
+```
+
+The worker extracts this verdict and routes the task accordingly:
+
+| Verdict | Meaning | Action |
+|---------|---------|--------|
+| `GO` | Review passed | Proceed to PR creation / mark complete |
+| `FAIL` | Implementation issues | Requeue from **coding** stage |
+| `SPEC_FAIL` | Requirements unclear | Requeue from **planning** stage |
+| `ESCALATE` | Needs human review | Mark as escalated, stop retrying |
+
+Each non-GO verdict triggers a retry from the appropriate stage, up to `max_retries` (default: 3). After exhausting retries, the task is marked `failed`.
+
+---
+
 ## Summary
 
 > This is an orchestration dashboard for AI coding agents. Define a coding task in the web UI, the backend queues it, and a background worker picks it up and runs AI agents (Devin, DeepSeek, Gemini) through a configurable pipeline — streaming live logs back to your browser in real-time. Agents can clone real repositories, write code, commit changes, and open pull requests automatically.
@@ -302,7 +337,7 @@ source /Users/jingyin/Downloads/agent_orchestration/server-flask/.venv/bin/activ
 Flask Socket.IO (python app.py in server-flask/)
 Frontend (npm run dev)
 Backend (npm run server)
-Worker (npm run worker)11111111111111111111111111111111111/
+Worker (npm run worker)
 1) Terminal 1 — Flask Socket.IO (PORT 5002)
 
 cd "c:/Users/Gary Chong/Downloads/Telegram Desktop/agent_orchestration/agent_orchestration/server-flask"
