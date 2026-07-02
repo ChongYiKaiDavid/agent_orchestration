@@ -107,7 +107,7 @@ export async function runGeminiStage({ prompt, stageId, workspace, onStdout, onS
   // The rest of the orchestration expects FILE:/---/--- blocks in stdout.
   //
   // Expected env (per README):
-  // - GOOGLE_API_KEY
+  // - GEMINI_API_KEY (or GOOGLE_API_KEY as fallback)
   // - GEMINI_MODEL (optional)
 
   await writePromptFile(workspace, prompt);
@@ -116,26 +116,46 @@ export async function runGeminiStage({ prompt, stageId, workspace, onStdout, onS
   const repoPath = path.join(path.dirname(workspace), 'repo');
   const model = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
 
-  // Common Gemini CLI patterns are inconsistent, so we pass the prompt file and model.
-  // If your Gemini CLI uses different flags, adjust here.
-  const promptFile = path.join(workspace, 'prompt.txt');
-
+  // Use -p/--prompt for non-interactive (headless) mode.
+  // --skip-trust suppresses the "folder not trusted" interactive prompt that overrides --yolo.
+  // -y/--yolo auto-approves all tool actions so the process doesn't block.
   const args = [
     '--model', model,
-    '--prompt-file', promptFile,
+    '-p', prompt,
+    '-y',
+    '--skip-trust',
   ];
 
-  const env = {
-    ...process.env,
-    GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
-  };
+  // Auth: if GEMINI_API_KEY is set, use it exclusively and clear GOOGLE_API_KEY so
+  // the CLI doesn't prefer a stale GOOGLE_API_KEY from the shell environment.
+  // If neither is set, fall back to OAuth credentials (~/.gemini/settings.json).
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  const env = { ...process.env };
+  if (geminiApiKey) {
+    env.GEMINI_API_KEY = geminiApiKey;
+    delete env.GOOGLE_API_KEY; // prevent CLI from preferring a stale GOOGLE_API_KEY
+  }
 
   return new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
     let completed = false;
+    let settled = false;
+
+    const timeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '', 10) || 5 * 60 * 1000; // default 5 min
 
     const child = spawn(command, args, { cwd: workspace, env, shell: process.platform === 'win32' });
+
+    const timeoutHandle = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { child.kill('SIGTERM'); } catch {}
+      resolve({
+        exitCode: 1,
+        output: stdout.trim(),
+        logs: `[gemini] Timed out after ${timeoutMs / 1000}s. Last stderr:\n${stderr.trim()}`,
+      });
+    }, timeoutMs);
 
     child.stdout.on('data', (chunk) => {
       const text = chunk.toString();
@@ -162,6 +182,10 @@ export async function runGeminiStage({ prompt, stageId, workspace, onStdout, onS
     });
 
     child.on('close', async (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutHandle);
+
       const output = stdout.trim();
       try {
         const written = writeFilesFromOutput(output, repoPath);
@@ -180,6 +204,9 @@ export async function runGeminiStage({ prompt, stageId, workspace, onStdout, onS
     });
 
     child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutHandle);
       resolve({
         exitCode: 1,
         output: '',
@@ -245,4 +272,3 @@ export function buildStagePrompt(stage, task, previousArtifacts = [], repository
 
   return lines.join('\n');
 }
-

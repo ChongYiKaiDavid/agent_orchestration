@@ -115,7 +115,7 @@ const TaskDetails: React.FC<TaskDetailsProps> = ({ taskId, onTaskDeleted }) => {
         <div className="td-grid">
           <div className="td-field">
             <div className="td-label">Pipeline</div>
-            <div className="td-value">{task.pipeline_id || '—'}</div>
+            <div className="td-value">{task.pipeline_id === 'auto' ? 'Auto (resolves on start)' : task.pipeline_id || '—'}</div>
           </div>
           <div className="td-field">
             <div className="td-label">Created</div>
@@ -133,12 +133,10 @@ const TaskDetails: React.FC<TaskDetailsProps> = ({ taskId, onTaskDeleted }) => {
               <div className="td-value td-value--mono">{task.repository}</div>
             </div>
           )}
-          {task.description && (
-            <div className="td-field td-field--full">
-              <div className="td-label">Description</div>
-              <div className="td-value td-value--pre">{task.description}</div>
-            </div>
-          )}
+          <div className="td-field td-field--full">
+            <div className="td-label">Description</div>
+            <div className="td-value td-value--pre">{task.description || '—'}</div>
+          </div>
         </div>
       </div>
 

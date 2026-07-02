@@ -25,6 +25,62 @@ function substituteEnvVars(value) {
   });
 }
 
+async function runAgentStageModule({ stage, prompt, workspace, onStdout, onStderr, agentId }) {
+  const modulePath = path.join(process.cwd(), 'server', 'agents', `${agentId}.js`);
+
+  // Best-effort: always log enough info to diagnose why JS runner isn't being used.
+  console.log(`[engine] [module-runner] stage=${stage?.id} agent=${agentId} modulePath=${modulePath}`);
+
+  if (!fsSync.existsSync(modulePath)) {
+    console.log(`[engine] [module-runner] module not found: ${modulePath}`);
+    return null;
+  }
+
+  let mod;
+  try {
+    mod = await import(modulePath);
+  } catch (e) {
+    console.error(`[engine] [module-runner] import failed for ${modulePath}:`, e?.stack || e?.message || String(e));
+    return null;
+  }
+
+  // Prefer explicit runners: run<AgentIdPascalCase>Stage, but fall back to common names.
+  const candidates = [
+    // deepseek
+    mod.runDeepSeekStage,
+    // devin
+    mod.runDevinStage,
+    // gemini
+    mod.runGeminiStage,
+    // generic fallbacks
+    mod.runAgentStage,
+  ].filter(Boolean);
+
+  console.log(
+    `[engine] [module-runner] exports found for ${agentId}: ` +
+      JSON.stringify({
+        runDeepSeekStage: Boolean(mod.runDeepSeekStage),
+        runDevinStage: Boolean(mod.runDevinStage),
+        runGeminiStage: Boolean(mod.runGeminiStage),
+        runAgentStage: Boolean(mod.runAgentStage),
+      })
+  );
+
+  if (candidates.length === 0) {
+    console.log(`[engine] [module-runner] no runner export detected for agent=${agentId}`);
+    return null;
+  }
+
+  // Use first available candidate
+  const runner = candidates[0];
+  console.log(`[engine] [module-runner] using runner for agent=${agentId}`);
+  return runner({ stage, prompt, stageId: stage?.id, workspace, onStdout, onStderr });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Generic CLI executor - reads CLI config from pipeline stage
+// ──────────────────────────────────────────────────────────────────────────────
+
 async function runGenericCLIStage({ stage, prompt, workspace, onStdout, onStderr, agentId }) {
   try {
     // Load CLI configuration from agent JSON file
@@ -80,9 +136,6 @@ async function runGenericCLIStage({ stage, prompt, workspace, onStdout, onStderr
       if (arg === '{model}') return process.env.GEMINI_MODEL || '';
       return arg;
     });
-
-
-
 
     const env = {
       ...process.env,
@@ -641,6 +694,18 @@ export function normalizePipelineId(value) {
 export function createTask(payload) {
   const id = crypto.randomUUID();
   const pipelineId = normalizePipelineId(payload.pipeline);
+
+  // Normalize incoming Jira/Jira-like payload fields so prompt building
+  // consistently receives `task.jira_ticket` and `task.description`.
+  // (Some callers may use jiraTicket / jira_key / jiraDescription naming.)
+  const normalizedJiraTicket = payload.jira_ticket || payload.jiraTicket || payload.jira_key || payload.key || null;
+  const normalizedDescription =
+    payload.description ??
+    payload.jira_description ??
+    payload.jiraDescription ??
+    payload.jira_description_block ??
+    payload.jiraDescriptionBlock ??
+    null;
   
   // Load pipeline to get configuration
   const pipeline = getPipelineSync(pipelineId);
@@ -664,12 +729,12 @@ export function createTask(payload) {
   insert.run(
     id,
     payload.title,
-    payload.description || null,
+    normalizedDescription,
     payload.priority || 'medium',
     payload.repository || null,
     payload.targetBranch || null,
     pipelineId,
-    payload.jira_ticket || null,
+    normalizedJiraTicket,
     autoBranch,
     maxRetries,
     postCompleteStatus,
@@ -842,6 +907,9 @@ export async function processTask(task) {
   } else {
     auto = autoSelectPipelineAndAgent(task);
     console.log('[processTask] autoSelect done:', auto.pipelineId);
+    // Persist the resolved pipeline ID so the UI shows the real pipeline name
+    db.prepare('UPDATE tasks SET pipeline_id = ?, updated_at = ? WHERE id = ?').run(auto.pipelineId, now(), task.id);
+    task.pipeline_id = auto.pipelineId;
   }
 
 
@@ -1043,15 +1111,30 @@ export async function processTask(task) {
       tried.add(agent);
 
       try {
-        // Use generic CLI executor that reads from pipeline stage configuration
-        result = await runGenericCLIStage({
+        // Prefer agent JS runner (does not require provider CLI binaries installed)
+        const moduleResult = await runAgentStageModule({
           stage,
           prompt,
           workspace: stageFolder,
           onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
           onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
           agentId: agent,
+
         });
+
+        if (moduleResult) {
+          result = moduleResult;
+        } else {
+          // Use generic CLI executor that reads from pipeline stage configuration
+          result = await runGenericCLIStage({
+            stage,
+            prompt,
+            workspace: stageFolder,
+            onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
+            onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
+            agentId: agent,
+          });
+        }
 
         // If agent exited successfully, stop trying.
         if (result && result.exitCode === 0) {

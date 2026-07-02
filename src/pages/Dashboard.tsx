@@ -290,7 +290,12 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
                   onClick={async () => {
                     setJiraSending((prev) => ({ ...prev, [issue.key]: true }));
                     try {
-                      await createTaskFromJira({ summary: issue.summary, key: issue.key, priority: issue.priority?.toLowerCase() });
+                      await createTaskFromJira({
+                        summary: issue.summary,
+                        description: issue.description,
+                        key: issue.key,
+                        priority: issue.priority?.toLowerCase(),
+                      });
                       setJiraSent((prev) => ({ ...prev, [issue.key]: true }));
                       fetchTasks().then(setTasks).catch(() => {});
                     } finally {

@@ -114,8 +114,12 @@ export async function runDevinStage({ prompt, stageId, workspace, onStdout, onSt
     const env = {
       ...process.env,
       DEVIN_PERMISSION_MODE: process.env.DEVIN_PERMISSION_MODE || 'dangerous',
-      DEVIN_MODEL: process.env.DEVIN_MODEL,
     };
+    // Only forward DEVIN_MODEL if it is explicitly set — passing an empty string
+    // causes the Devin CLI to error with "Unknown model: ''"
+    if (process.env.DEVIN_MODEL) {
+      env.DEVIN_MODEL = process.env.DEVIN_MODEL;
+    }
 
     const repoPath = path.join(path.dirname(workspace), 'repo');
 

@@ -505,6 +505,29 @@ router.get('/tasks/:id/test-framework', (req, res) => {
   }
 });
 
+// Convert Atlassian Document Format (ADF) node tree to plain text.
+// Jira REST API v3 returns description as ADF; v2 returns a plain string.
+function extractAdfText(adf) {
+  if (!adf) return null;
+  // Plain string (API v2 or already extracted)
+  if (typeof adf === 'string') return adf.trim() || null;
+  // Recursively walk ADF node tree
+  function walk(node) {
+    if (!node) return '';
+    if (node.type === 'text') return node.text || '';
+    if (node.type === 'hardBreak') return '\n';
+    if (node.type === 'mention') return node.attrs?.text || '';
+    if (node.type === 'emoji') return node.attrs?.shortName || '';
+    const children = Array.isArray(node.content) ? node.content.map(walk).join('') : '';
+    // Add newlines after block-level nodes for readability
+    const blockTypes = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'listItem',
+      'blockquote', 'codeBlock', 'rule', 'panel', 'table', 'tableRow', 'tableCell', 'tableHeader']);
+    return blockTypes.has(node.type) ? children + '\n' : children;
+  }
+  const text = walk(adf).replace(/\n{3,}/g, '\n\n').trim();
+  return text || null;
+}
+
 // Jira issues proxy — fetches open issues from the configured Jira project
 router.get('/jira/issues', async (req, res) => {
   const baseUrl = (() => {
@@ -551,9 +574,18 @@ router.get('/jira/issues', async (req, res) => {
     }
 
     const data = await response.json();
+    // Debug: log raw description field from first issue to diagnose extraction
+    if (data.issues?.length > 0) {
+      const sample = data.issues[0];
+      console.log(`[jira/issues] first issue key=${sample.key} description field type=${typeof sample.fields.description}`, 
+        sample.fields.description === null ? '(null)' : 
+        typeof sample.fields.description === 'object' ? JSON.stringify(sample.fields.description).slice(0, 300) : 
+        String(sample.fields.description).slice(0, 300));
+    }
     const issues = (data.issues || []).map(issue => ({
       key: issue.key,
       summary: issue.fields.summary,
+      description: extractAdfText(issue.fields.description),
       status: issue.fields.status?.name,
       statusCategory: issue.fields.status?.statusCategory?.key,
       priority: issue.fields.priority?.name,
@@ -579,6 +611,7 @@ const CONFIG_KEYS = [
   'BITBUCKET_USERNAME', 'BITBUCKET_HTTPS_TOKEN', 'BITBUCKET_TOKEN', 'BITBUCKET_APP_PASSWORD',
   'GITHUB_TOKEN',
   'DEVIN_PATH', 'DEVIN_PERMISSION_MODE', 'DEVIN_MODEL',
+  'GEMINI_API_KEY', 'GEMINI_MODEL', 'GEMINI_TIMEOUT_MS',
   'DEEPSEEK_API_KEY', 'DEEPSEEK_MODEL', 'DEEPSEEK_BASE_URL', 'DEEPSEEK_TIMEOUT_MS',
   'FLASK_SOCKET_URL',
 ];
