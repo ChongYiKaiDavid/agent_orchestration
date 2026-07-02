@@ -79,6 +79,19 @@ function validatePipeline(config) {
     if (!stage.summary || typeof stage.summary !== 'string') {
       throw new Error('Stage must have a summary');
     }
+    
+    // CLI configuration is optional - will be loaded from agent JSON if not provided
+    if (stage.cli) {
+      if (!stage.cli.command || typeof stage.cli.command !== 'string') {
+        throw new Error('Stage CLI config must have a command');
+      }
+      if (stage.cli.args && !Array.isArray(stage.cli.args)) {
+        throw new Error('Stage CLI args must be an array');
+      }
+      if (stage.cli.env && typeof stage.cli.env !== 'object') {
+        throw new Error('Stage CLI env must be an object');
+      }
+    }
   }
 
   return config;

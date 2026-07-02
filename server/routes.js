@@ -154,6 +154,24 @@ router.post('/tasks/from-jira', express.json(), (req, res) => {
     }
   }
 
+  // Auto-detect repository from JIRA_REPO_MAPPING if not provided
+  let autoRepository = repository;
+  if (!autoRepository && key) {
+    try {
+      const repoMapping = process.env.JIRA_REPO_MAPPING;
+      if (repoMapping) {
+        const mapping = JSON.parse(repoMapping);
+        const projectKey = key.split('-')[0].toUpperCase();
+        autoRepository = mapping[projectKey] || mapping[projectKey.toLowerCase()] || null;
+        if (autoRepository) {
+          console.log(`[from-jira] Auto-detected repository for project ${projectKey}: ${autoRepository}`);
+        }
+      }
+    } catch (error) {
+      console.error('[from-jira] Failed to parse JIRA_REPO_MAPPING:', error);
+    }
+  }
+
   const normalizedLinks = Array.isArray(links)
     ? links.filter(Boolean)
     : (typeof links === 'string' && links.trim() ? [links.trim()] : []);
@@ -182,7 +200,7 @@ router.post('/tasks/from-jira', express.json(), (req, res) => {
     description: jiraDescriptionBlock,
     pipeline: 'auto',
     priority: priority || 'medium',
-    repository: repository || null,
+    repository: autoRepository || null,
     targetBranch: targetBranch || null,
     jira_ticket: key || null,
     // Store the auto-generated branch name for later use
@@ -557,7 +575,7 @@ const CONFIG_KEYS = [
   'PROJECT_NAME', 'DISPLAY_NAME',
   'GIT_ENABLED', 'TARGET_BRANCH', 'BRANCH_PATTERN',
   'CLI_EXECUTABLE', 'MODEL',
-  'JIRA_SPACE_KEYS', 'JIRA_BASE_URL', 'JIRA_USER', 'JIRA_API_TOKEN',
+  'JIRA_SPACE_KEYS', 'JIRA_BASE_URL', 'JIRA_USER', 'JIRA_API_TOKEN', 'JIRA_REPO_MAPPING',
   'BITBUCKET_USERNAME', 'BITBUCKET_HTTPS_TOKEN', 'BITBUCKET_TOKEN', 'BITBUCKET_APP_PASSWORD',
   'GITHUB_TOKEN',
   'DEVIN_PATH', 'DEVIN_PERMISSION_MODE', 'DEVIN_MODEL',

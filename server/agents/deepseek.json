@@ -3,7 +3,7 @@
   "name": "DeepSeek",
   "description": "DeepSeek AI agent",
   "cli": {
-    "command": "deepseek-cli",
+    "command": "deepseek",
     "args": ["--prompt", "{prompt}", "--output", "{outputFile}"],
     "env": {
       "DEEPSEEK_API_KEY": "{DEEPSEEK_API_KEY}",

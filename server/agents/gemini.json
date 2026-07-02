@@ -3,12 +3,18 @@
   "name": "Gemini",
   "description": "Google Gemini AI agent",
   "cli": {
-    "command": "gemini-cli",
-    "args": ["--prompt", "{prompt}", "--output", "{outputFile}"],
-    "env": {
-      "GEMINI_API_KEY": "{GEMINI_API_KEY}",
-      "GEMINI_MODEL": "gemini-pro"
-    }
+    "command": "node",
+    "args": [
+      "/Users/jingyin/Downloads/agent_orchestration/server/cli_runner.js",
+      "--provider",
+      "gemini",
+      "--prompt-file",
+      "{promptFile}",
+      "--output-file",
+      "{outputFile}",
+      "--model",
+      "{model}"
+    ]
   },
   "capabilities": {
     "strengths": ["code generation", "planning", "review", "analysis", "documentation"],

@@ -59,6 +59,7 @@ const SECTIONS: Section[] = [
       { key: 'JIRA_USER', label: 'User Email' },
       { key: 'JIRA_API_TOKEN', label: 'API Token', secret: true },
       { key: 'JIRA_SPACE_KEYS', label: 'Space Keys (comma-separated, optional)' },
+      { key: 'JIRA_REPO_MAPPING', label: 'Project to Repository Mapping (JSON)', readonly: false },
     ],
   },
   {
@@ -177,10 +178,23 @@ const SettingsPage: React.FC = () => {
   };
 
   const handleSave = () => {
-    saveConfig(config).then(() => {
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    });
+    // Filter out computed URLs that shouldn't be saved to .env
+    const configToSave = { ...config };
+    delete configToSave.FLASK_URL;
+    delete configToSave.SERVER_URL;
+    delete configToSave.VITE_URL;
+    delete configToSave.SOCKET_URL;
+    delete configToSave.DATABASE_URL;
+    
+    saveConfig(configToSave)
+      .then(() => {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2500);
+      })
+      .catch((error) => {
+        console.error('Failed to save config:', error);
+        alert('Failed to save configuration. Please check the console for details.');
+      });
   };
 
   if (loading) return <div className="settings-page"><p style={{ color: 'var(--muted)' }}>Loading...</p></div>;

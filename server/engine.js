@@ -25,11 +25,31 @@ function substituteEnvVars(value) {
   });
 }
 
-async function runGenericCLIStage({ stage, prompt, workspace, onStdout, onStderr }) {
+async function runGenericCLIStage({ stage, prompt, workspace, onStdout, onStderr, agentId }) {
   try {
-    const cliConfig = stage.cli;
+    // Load CLI configuration from agent JSON file
+    const agentsDir = path.join(process.cwd(), 'server', 'agents');
+    const agentFile = path.join(agentsDir, `${agentId}.json`);
+    
+    let cliConfig = stage.cli;
+    
+    // If stage doesn't have CLI config, load from agent definition
     if (!cliConfig) {
-      throw new Error(`Stage ${stage.id} has no CLI configuration`);
+      try {
+        if (fsSync.existsSync(agentFile)) {
+          const agentConfig = JSON.parse(fsSync.readFileSync(agentFile, 'utf8'));
+          cliConfig = agentConfig.cli;
+          console.log(`[runGenericCLIStage] Loaded CLI config from agent ${agentId}`);
+        } else {
+          throw new Error(`Agent file not found: ${agentFile}`);
+        }
+      } catch (error) {
+        throw new Error(`Failed to load CLI config for agent ${agentId}: ${error.message}`);
+      }
+    }
+
+    if (!cliConfig) {
+      throw new Error(`Stage ${stage.id} has no CLI configuration and agent ${agentId} has no CLI config`);
     }
 
     let command = cliConfig.command;
@@ -47,9 +67,22 @@ async function runGenericCLIStage({ stage, prompt, workspace, onStdout, onStderr
     const promptFile = path.join(workspace, 'prompt.txt');
     await fs.writeFile(promptFile, prompt, 'utf8');
 
-    // Replace {promptFile} placeholder
+    // Replace placeholders for generic runner interface
     args = args.map(arg => arg.replace('{promptFile}', promptFile));
     args = args.map(arg => arg.replace('{prompt}', prompt));
+
+    // Also support the runner's fixed output-file placeholder
+    const outputFile = path.join(workspace, 'output.txt');
+    args = args.map(arg => arg.replace('{outputFile}', outputFile));
+
+    // Some configs (or older setups) may rely on {model}
+    args = args.map(arg => {
+      if (arg === '{model}') return process.env.GEMINI_MODEL || '';
+      return arg;
+    });
+
+
+
 
     const env = {
       ...process.env,
@@ -832,9 +865,14 @@ export async function processTask(task) {
     return;
   }
   // Fail fast if pipeline expects a coding stage (repo modifications) but task has no repository.
+  // However, allow coding stages without repository for simple tasks (e.g., writing standalone scripts)
   const pipelineStageIds = Array.isArray(pipeline?.stages) ? pipeline.stages.map((s) => s.id) : [];
   const requiresRepo = pipelineStageIds.includes('coding');
-  if (requiresRepo && !task.repository) {
+  
+  // Check if this is a simple task that doesn't require a repository
+  const isSimpleTask = /(?:write|create|generate)\s+(?:a\s+)?(?:simple|basic|hello\s+world|standalone)/i.test(task.title || '');
+  
+  if (requiresRepo && !task.repository && !isSimpleTask) {
     const message = `Missing repository: pipeline '${pipeline.id || auto.pipelineId}' contains a coding stage but task.repository was not provided.`;
     recordActivity({
       taskId: task.id,
@@ -1012,6 +1050,7 @@ export async function processTask(task) {
           workspace: stageFolder,
           onStdout: (chunk) => streamLogSync(task.id, stageLogId, 'stdout', chunk),
           onStderr: (chunk) => streamLogSync(task.id, stageLogId, 'stderr', chunk),
+          agentId: agent,
         });
 
         // If agent exited successfully, stop trying.
