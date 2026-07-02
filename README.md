@@ -13,18 +13,17 @@ The system consists of four main components:
 
 ## Features
 
-- 🤖 **Multi-Agent Support** - Devin, and Ollama AI agents
+- 🤖 **Multi-Agent Support** - Devin, DeepSeek, and Gemini AI agents with automatic fallback
 - 🎯 **Auto-Selection** - Automatically selects optimal agent per stage based on task complexity
 - 📋 **Configurable Pipelines** - Define custom workflows (plan → code → review, code-only)
 - 🔗 **Git Integration** - Clone repositories, make real code changes, create PRs on GitHub/Bitbucket
-- 🎫 **Jira Integration** - Link tasks to Jira tickets with automatic commit message formatting
+- 🎫 **Jira Integration** - Fetch Jira issues with full description extraction, auto-queue tasks
 - 📡 **Real-time Logs** - Live terminal streaming via Socket.IO and native terminal window spawning
 - 🔔 **Real-time Notifications** - WebSocket-based notifications for task lifecycle events (session-based)
 - 📊 **Pipeline Visualizer** - Visual representation of pipeline stages with real-time status updates
 - 🔀 **PR Tracking** - Monitor pull request status with automatic polling and status updates
 - 🧪 **Automated Test Execution** - Detect test frameworks and run tests with result visualization
 - 🌙 **Dark Themed UI** - Modern React dashboard with responsive design
-- 🧪 **Testing** - Unit tests for frontend components
 
 ## Project Structure
 
@@ -58,14 +57,18 @@ agent_orchestration/
 ├── server/                       # Backend Node.js
 │   ├── agents/                   # AI agent implementations
 │   │   ├── devin.js
-│   │   └── ollama.js
+│   │   ├── devin.json
+│   │   ├── deepseek.js
+│   │   ├── deepseek.json
+│   │   ├── gemini.js
+│   │   └── gemini.json
 │   ├── pipelines/                # Pipeline YAML configs
 │   │   ├── code-only.yaml
 │   │   └── plan-code-review.yaml
 │   ├── skills/                   # Agent skill configurations
-│   │   ├── planner/agent.yaml
-│   │   ├── coder/agent.yaml
-│   │   └── reviewer/agent.yaml
+│   │   ├── planner.json
+│   │   ├── coder.json
+│   │   └── reviewer.json
 │   ├── workspaces/               # Temporary task workspaces
 │   ├── engine.js                 # Core task processing logic
 │   ├── auto-selector.js          # Agent and pipeline auto-selection
@@ -73,6 +76,9 @@ agent_orchestration/
 │   ├── worker.js                 # Background worker
 │   ├── db.js                     # SQLite database
 │   ├── routes.js                 # API routes
+│   ├── pipeline-loader.js        # YAML pipeline loader
+│   ├── pipeline-edit-store.js    # Pipeline edit persistence
+│   ├── cli_runner.js             # Generic CLI runner
 │   ├── pr-poller.js              # PR status polling service
 │   └── orphan-recovery.js        # Orphaned task recovery
 ├── server-flask/                 # Flask Socket.IO server
@@ -127,7 +133,7 @@ npm run worker
 
 ## Environment Variables
 
-Create a `.env` file in the root directory (or use `.env.agent_orchestration`):
+Create a `.env.agent_orchestration` file in the root directory:
 
 ```bash
 # Jira Integration
@@ -135,6 +141,7 @@ JIRA_BASE_URL=https://your-domain.atlassian.net
 JIRA_USER=your-email@example.com
 JIRA_API_TOKEN=your-jira-api-token
 JIRA_SPACE_KEYS=KAN
+JIRA_REPO_MAPPING={"KAN":"https://github.com/owner/repo.git"}
 
 # Bitbucket Integration
 BITBUCKET_USERNAME=your-username
@@ -145,15 +152,20 @@ BITBUCKET_HTTPS_TOKEN=your-https-token
 # GitHub Integration
 GITHUB_TOKEN=ghp_your-personal-access-token
 
-# AI Agents
+# Devin Agent
 DEVIN_PATH=/path/to/devin
 DEVIN_PERMISSION_MODE=dangerous
-DEVIN_MODEL=optional_model_name
+DEVIN_MODEL=swe-1.6
 
-OLLAMA_PATH=/path/to/ollama
-OLLAMA_MODEL=qwen2.5-coder:1.5b
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_ONLY=false
+# DeepSeek Agent
+DEEPSEEK_API_KEY=your-deepseek-api-key
+DEEPSEEK_MODEL=deepseek-coder
+
+# Gemini Agent (CLI-based, one of the following auth methods required)
+GEMINI_API_KEY=AIzaSy...          # From https://aistudio.google.com/apikey
+GEMINI_MODEL=gemini-2.0-flash     # Model to use
+GEMINI_TIMEOUT_MS=300000          # Timeout in ms (default: 5 minutes)
+# OR authenticate via OAuth: run `gemini auth login` in your terminal
 
 # Flask Socket.IO URL (if different from default)
 FLASK_SOCKET_URL=http://localhost:5002
@@ -162,16 +174,33 @@ FLASK_SOCKET_URL=http://localhost:5002
 ### Agent Auto-Selection
 
 The system automatically selects the optimal agent for each pipeline stage based on:
-- **Task complexity** (high, medium, low)
+- **Task complexity** (high, medium, low) derived from title and description keywords
 - **Stage type** (planning, coding, reviewing)
-- **Environment variables** (e.g., OLLAMA_ONLY forces Ollama)
 
 **Selection Logic:**
-- **Planning**: Gemini for speed, Devin for high complexity
-- **Coding**: Devin for medium/high complexity, Gemini for low complexity
-- **Reviewing**: Gemini for speed
+- **Planning / Reviewing**: DeepSeek (fast, good at analysis)
+- **High complexity coding**: Devin
+- **Low / medium complexity coding**: DeepSeek
 
-You don't need to specify agents in pipeline configurations - the system handles this automatically.
+**Fallback chain:** If the selected agent fails, the system automatically tries the next agent in order: `devin → deepseek → gemini`. All agents are tried before a stage is marked as failed.
+
+You don't need to specify agents in pipeline configurations — the system handles selection and fallback automatically.
+
+## Gemini CLI Setup
+
+The Gemini agent runs the `gemini` CLI binary in headless mode. Two authentication methods are supported:
+
+### Option 1: API Key (recommended)
+1. Go to https://aistudio.google.com/apikey and create a free key
+2. Set `GEMINI_API_KEY=AIzaSy...` in `.env.agent_orchestration`
+
+### Option 2: OAuth login
+```bash
+gemini auth login   # opens browser to authenticate with your Google account
+```
+Leave `GEMINI_API_KEY` unset — the CLI will use its stored OAuth token.
+
+**Note:** The free tier on AI Studio (API key) provides 15 RPM and 1500 req/day on Gemini 2.0 Flash. If you hit rate limits, set `GEMINI_TIMEOUT_MS=300000` (5 min) so the worker waits out retries instead of failing immediately.
 
 ## Available Scripts
 
@@ -220,8 +249,16 @@ The system tries multiple authentication methods in order for Bitbucket:
 
 ## Jira Integration
 
-Tasks can be created from Jira via the `/api/tasks/from-jira` endpoint. Only issues from projects listed in `JIRA_SPACE_KEYS` are fetched and imported — requests with keys outside that list are rejected with a 403.
+### Fetching Issues
+The dashboard fetches open Jira issues and displays them in a panel. Issues include full descriptions extracted from Atlassian Document Format (ADF). Click **Send to agent** to queue a task directly from a Jira issue — the description, priority, and ticket key are all passed through automatically.
 
+Only issues from projects listed in `JIRA_SPACE_KEYS` are fetched. Use `JIRA_REPO_MAPPING` to automatically assign a repository to tasks based on the Jira project key:
+
+```json
+{"KAN": "https://github.com/owner/repo.git"}
+```
+
+### Creating Tasks via API
 ```bash
 curl -X POST http://localhost:5174/api/tasks/from-jira \
   -H "Content-Type: application/json" \
@@ -236,7 +273,7 @@ curl -X POST http://localhost:5174/api/tasks/from-jira \
 
 The Jira ticket number is automatically included in commit messages and PR titles.
 
-## New Features
+## Features
 
 ### Real-time Notifications
 The system provides WebSocket-based notifications for task lifecycle events:
@@ -247,11 +284,10 @@ The system provides WebSocket-based notifications for task lifecycle events:
 - Notifications are session-based (not persisted across browser refreshes)
 
 ### Terminal Window Spawning
-The worker now spawns native terminal windows for real-time log viewing:
+The worker spawns native terminal windows for real-time log viewing:
 - Automatically opens a new terminal window when a task starts processing
 - Uses platform-specific terminal emulators (Terminal.app on macOS, cmd on Windows, gnome-terminal on Linux)
 - Tails the worker log file in real-time for each task
-- One terminal per task to avoid log mixing
 
 ### Pipeline Visualizer
 Visual representation of pipeline execution with real-time status updates:
@@ -266,33 +302,19 @@ Monitor pull request status with automatic polling:
 - Status indicators (open, merged, closed, approved, changes_requested)
 - Automatic polling every 5 minutes
 - Direct links to GitHub/Bitbucket
-- PR details panel with metadata
 
 ### Automated Test Execution
 Detect and run tests in the repository:
 - Automatic test framework detection (Jest, Vitest, Mocha, Pytest, unittest)
 - One-click test execution from Task Details
 - Test results visualization with pass/fail counts
-- Pass rate indicator
 - Full test output display
 
-## Frontend Development
-
-### Theme Colors
-Edit `src/index.css` to customize colors:
-- Dark backgrounds: `#0f1419`, `#1f2236`, `#2d3142`
-- Accent colors: Purple `#9d7fff`, Blue `#6b9eff`, Green `#4ade80`, Yellow `#fbbf24`, Red `#ff6b6b`
-
-### Components
-- **Sidebar** - Navigation menu with responsive mobile support and notifications panel
-- **Header** - System status metrics
-- **Notifications** - Real-time notification panel with unread count (located in sidebar)
-- **PipelineVisualizer** - Visual pipeline stage progress with status indicators
-- **PRTracking** - Pull request status monitoring with polling
-- **TestResults** - Automated test execution with results visualization
-- **RecentTasks** - Task list with status, agents, and PR links
-- **CreateTask** - Task creation form with repository and pipeline selection
-- **Dashboard** - Overview of system status and recent activity
+### Task Details Page
+- Full task information including description, pipeline, repository, and Jira ticket
+- Pipeline progress with stage-by-stage status
+- PR tracking panel
+- Resolved pipeline name shown (never shows raw "auto")
 
 ## Development Stack
 
@@ -306,7 +328,7 @@ Edit `src/index.css` to customize colors:
 - **Node.js** with Express for REST API
 - **SQLite** for database
 - **Python Flask** with Socket.IO for real-time streaming
-- **AI Agents** - Gemini API, Ollama (local)
+- **AI Agents** - Devin, DeepSeek API, Gemini CLI
 
 ## Browser Support
 
@@ -321,21 +343,36 @@ Edit `src/index.css` to customize colors:
 - Check that the backend server is running (`npm run server`)
 - Verify the database has queued tasks
 
+### Agent fails with "Unknown model"
+- Ensure `DEVIN_MODEL` is set to a valid model (e.g. `swe-1.6`) or left completely unset
+- Do not set `DEVIN_MODEL=` (blank value overrides a valid value set earlier in the file)
+
+### Gemini agent fails with authentication error
+- Run `gemini auth login` to re-authenticate via OAuth, or set `GEMINI_API_KEY` with a valid AI Studio key
+- Ensure `GOOGLE_API_KEY` is not set to a different (rate-limited) key — it takes precedence over `GEMINI_API_KEY` in the CLI
+
+### Gemini agent times out
+- The free tier has low RPM quotas; the agent will retry for up to `GEMINI_TIMEOUT_MS` ms (default 5 min)
+- Switch to `GEMINI_MODEL=gemini-2.0-flash` for higher free-tier quota
+- Consider upgrading to a paid API key for higher limits
+
+### DeepSeek fails with HTTP 402
+- Add credits to your DeepSeek account at https://platform.deepseek.com
+
 ### Terminal window not opening
 - On macOS: Ensure Terminal.app is allowed to run scripts
 - On Linux: Ensure gnome-terminal or xterm is installed
 - On Windows: Ensure cmd.exe can spawn new windows
-- Check that the worker has permission to create directories in `server/workspaces/`
-
-### No logs in worker terminal window
-- Verify the log file exists at `server/workspaces/{taskId}/worker.log`
-- Check that the worker process is writing to the log file
-- Ensure the tail command is supported on your platform
 
 ### No logs in browser terminal
 - Ensure Flask Socket.IO server is running on port 5002
 - Open the Task Details page before the worker starts processing
 - Check browser console for Socket.IO connection errors
+
+### Jira description shows "(No description provided)"
+- Verify the Jira ticket has a description in Jira itself
+- Confirm `JIRA_API_TOKEN` is valid and has read access to the project
+- The system extracts descriptions from Atlassian Document Format (ADF) automatically
 
 ### Bitbucket PR creation fails
 - Verify authentication tokens are set correctly

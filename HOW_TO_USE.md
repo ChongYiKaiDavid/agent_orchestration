@@ -1,371 +1,304 @@
-0.
 # Application Usage and Explanation Guide
 
-Welcome to the **Agent Orchestration** application! This guide will explain exactly what this project is, how it works behind the scenes, and provide step-by-step instructions on how to use it.
+Welcome to the **Agent Orchestration** application! This guide explains what this project is, how it works behind the scenes, and provides step-by-step instructions on how to use it.
 
 ## 1. What is this Project?
 
-This project is an **AI Agent Orchestration System**. Imagine you are a manager, and you have AI "workers" (agents) that can plan code, write code, and review code.
+This project is an **AI Agent Orchestration System**. Instead of manually giving instructions to an AI every single time, you create a **Task** (e.g., "Add a login button") and the application automatically guides AI agents through a **Pipeline** of stages:
 
-Instead of manually giving instructions to an AI every single time, this application allows you to create a **Task** (e.g., "Add a new login button"). The application then automatically guides your AI agents through a **Pipeline** of stages, such as:
-1. **Planning:** An AI plans out how to implement the feature.
-2. **Coding:** An AI writes the code based on the plan.
-3. **Reviewing:** An AI reviews the code to ensure it's safe and correct.
+1. **Planning:** An AI plans how to implement the feature
+2. **Coding:** An AI writes the code based on the plan
+3. **Reviewing:** An AI reviews the code for correctness
 
-The system automatically selects the optimal AI agent (Devin, Gemini, or Ollama) for each stage based on task complexity and stage type - no manual agent selection required.
+The system automatically selects the optimal AI agent for each stage based on task complexity; no manual agent selection required.
 
 ### The Four Main Components
 
-To make this magic happen, the application is split into four separate parts that must run at the same time:
+1. **The Frontend (UI):** The visual website you interact with to create and monitor tasks (React/Vite, port 5173)
+2. **The Backend Server (API):** Saves tasks to a local SQLite database (Express, port 5174)
+3. **The Background Worker:** Watches the database for new tasks, claims them, runs AI agents through the pipeline, and streams live logs
+4. **The Flask Socket.IO Server:** Receives agent log events from the worker and broadcasts them to connected browsers in real-time (port 5002)
 
-1. **The Frontend (UI):** The visual website you interact with to create and monitor tasks (built with React/Vite).
-2. **The Backend Server (API):** A server that takes your tasks from the UI and saves them into a local database (SQLite).
-3. **The Background Worker:** An automated system that constantly checks the database for new tasks. When it finds one, it claims it, prepares an isolated workspace folder, and runs the AI agent through the pipeline stages. It streams live logs to the Flask Socket.IO server.
-4. **The Flask Socket.IO Server:** A real-time event server that receives agent log events from the worker and broadcasts them to connected browser clients. It also provides interactive PTY (terminal) sessions.
+### How Agents Work
 
-**Key Points:**
-- **Pipeline YAML** controls the workflow and decides which stages run
-- **Agent YAML** (in `skills/` directory) defines how each agent executes its task
-- **Auto-selection** picks the optimal agent (Devin/Gemini/Ollama) per stage based on task complexity
-- **Completion tokens** (e.g., `<<<PLANNER_COMPLETE>>>`) signal when an agent finishes
-- **Verdict-based routing** handles GO, FAIL, SPEC_FAIL and ESCALATE outcomes from the reviewer
+The system supports three agents with automatic fallback:
+
+| Agent | Best For | Requires |
+|-------|----------|----------|
+| **Devin** | Complex coding, multi-file changes | Devin CLI installed, paid plan |
+| **DeepSeek** | Planning, review, low/medium coding | `DEEPSEEK_API_KEY` with credits |
+| **Gemini** | All stages | `GEMINI_API_KEY` from AI Studio, or OAuth login |
+
+**Fallback chain:** `devin → deepseek → gemini`. If the selected agent fails, the system automatically tries the next one.
+
+**Auto-selection logic:**
+- Planning / Reviewing → DeepSeek
+- High complexity coding → Devin
+- Low / medium complexity coding → DeepSeek
 
 ---
-cd "C:\Users\Gary Chong\Downloads\Telegram Desktop\agent_orchestration\agent_orchestration"
+
 ## 2. Step-by-Step: How to Start the Application
 
-Because this project relies on four distinct pieces working together, you must start all of them in separate terminal windows.
+You must start all four components in separate terminal windows.
 
-### Step 1: Install the requirements
-
-Open your terminal in the `agent_orchestration` folder and install all necessary packages:
+### Step 1: Install requirements
 
 ```bash
 npm install
 pip install -r server-flask/requirements.txt
 ```
 
-### Step 2: Start the Flask Socket.IO Server (Terminal 1)
-
-Open a **new terminal window** in the `agent_orchestration` folder and run:
+### Step 2: Terminal 1 — Flask Socket.IO Server (port 5002)
 
 ```bash
+# Activate the Python virtual environment first (macOS/Linux)
+source server-flask/.venv/bin/activate
+
 cd server-flask
 python app.py
 ```
 
-* **What this does:** Starts the Flask Socket.IO server on port `5002`. This handles real-time event streaming — both agent log broadcasts to the browser terminal AND interactive PTY terminal sessions.
-* **What to run (Terminal 1):**
+You'll see `Listening on http://0.0.0.0:5002` when it's ready.
 
-  ```bash
-  source /Users/jingyin/Downloads/agent_orchestration/server-flask/.venv/bin/activate
-  cd server-flask
-  # Default (most common): Flask-SocketIO listens on port 5002
-  python app.py
-  ```
-
-* **How to know which Socket.IO port you are running on**
-  - Check `server-flask/app.py`: at the bottom it calls `socketio.run(... port=5002)`.
-  - If you changed that `port=...` value, then your new port is the one you must use.
-
-* **If you changed the Flask port and want Node to use it**
-  - set `FLASK_SOCKET_URL` to match the URL/port you configured in `app.py`.
-
-
-* **What to watch for:** When a browser connects, you'll see debug output like `[DEBUG] join-task: socket ... joined room ...`. When the worker emits logs, you'll see `[DEBUG] agent-log -> room ...`.
-
-* **If your setup uses a different Flask Socket.IO URL:**
-  - Start backend/worker with `FLASK_SOCKET_URL`.
-  - Start frontend dev server with `VITE_FLASK_SOCKET_URL`.
-
-
-### Step 3: Start the Frontend UI (Terminal 2)
-
-In the same terminal window (or a new one), run:
+### Step 3: Terminal 2 — Frontend UI (port 5173)
 
 ```bash
 npm run dev
 ```
 
-* **What this does:** It starts the visual dashboard. You can now open your web browser and go to `http://localhost:5173` to see the application.
-* **Note:** The Vite dev server proxies API requests (`/api` → `localhost:5174`) but does **not** proxy Socket.IO WebSocket connections. The frontend connects directly to the Flask Socket.IO server at `localhost:5002`.
+Open your browser at `http://localhost:5173`.
 
-### Step 4: Start the Backend Server (Terminal 3)
-
-Open a **new terminal window** in the `agent_orchestration` folder and run:
+### Step 4: Terminal 3 — Backend API (port 5174)
 
 ```bash
 npm run server
 ```
 
-* **What this does:** It starts the background API server. Without this, your frontend cannot save tasks to the database.
-
-### Step 5: Start the Background Worker (Terminal 4)
-
-Open a **new terminal window** in the `agent_orchestration` folder and run:
+### Step 5: Terminal 4 — Background Worker
 
 ```bash
 npm run worker
 ```
 
-* **What this does:** It starts the background worker. It will immediately begin looking for queued tasks in the database and executing them. As it runs, it streams real-time agent logs (planning output, coding output, stage completion) to the Flask Socket.IO server via Socket.IO events.
+The worker will immediately start watching for queued tasks.
 
 ---
 
-## 3. Step-by-Step: How to Use the UI
+## 3. Environment Setup (.env.agent_orchestration)
 
-Now that everything is running, open your web browser and navigate to `http://localhost:5173`.
+Create a `.env.agent_orchestration` file in the project root with your credentials. The worker loads this automatically on startup.
 
-### Step 1: Create a Task
+```bash
+# Jira Integration
+JIRA_BASE_URL=https://your-domain.atlassian.net
+JIRA_USER=your-email@example.com
+JIRA_API_TOKEN=your-jira-api-token
+JIRA_SPACE_KEYS=KAN
+JIRA_REPO_MAPPING={"KAN":"https://github.com/owner/repo.git"}
 
-1. Look at the left sidebar menu and click on **Create Task**.
-2. **Title:** Give your task a name (e.g., "Update Homepage UI").
-3. **Description:** Briefly describe what needs to be done.
-4. **Pipeline:** You can choose the workflow you want the AI to follow.
-5. **Repository URL (Optional):** If you want the AI to work on real code, paste a public Git URL here. If you just want to test the system, **leave this blank**.
-6. **Submit:** Click the "Create & Queue" button.
+# Bitbucket Integration
+BITBUCKET_USERNAME=your-username
+BITBUCKET_HTTPS_TOKEN=your-https-token
+BITBUCKET_TOKEN=your-access-token
+BITBUCKET_APP_PASSWORD=your-app-password
 
-* **What happens behind the scenes:** The UI sends your task to the Backend Server, which saves it in the database with status `"queued"`.
+# GitHub Integration
+GITHUB_TOKEN=ghp_your-personal-access-token
 
-### Step 2: Watch the Magic Happen
+# Devin Agent
+DEVIN_PATH=/path/to/devin          # find with: which devin
+DEVIN_PERMISSION_MODE=dangerous
+DEVIN_MODEL=swe-1.6                # do not leave this blank if set
 
-1. Go to the **Dashboard** or **Recent Tasks** page.
-2. You will see your task. Its status will change from `queued` → `running`.
-3. **Click on the task** to open the **Task Details** page. This page contains a **live terminal** that streams the agent's real-time output directly in your browser as the worker processes the task.
+# DeepSeek Agent
+DEEPSEEK_API_KEY=your-deepseek-api-key
+DEEPSEEK_MODEL=deepseek-coder
 
-### Step 3: Understand the Results
+# Gemini Agent
+GEMINI_API_KEY=AIzaSy...           # from https://aistudio.google.com/apikey
+GEMINI_MODEL=gemini-2.0-flash
+GEMINI_TIMEOUT_MS=300000           # 5 minutes (handles rate limit retries)
 
-Once the task finishes, its status will change to `completed`.
+# Flask Socket.IO URL (only change if you moved the Flask server)
+FLASK_SOCKET_URL=http://localhost:5002
+```
 
-But where did the AI do its work?
+### Finding agent paths
 
-1. Open your computer's file explorer.
-2. Navigate to `agent_orchestration/server/workspaces/`.
-3. You will see a folder with a unique ID matching your task.
-4. Inside that folder, you will see sub-folders for each pipeline stage (e.g., `planning`, `coding`, `reviewing`).
-5. Inside those folders, you will find a `prompt.txt` (the instructions given to the AI) and an `output.txt` (the simulated answer from the AI).
+```bash
+which devin    # Devin CLI path
+which gemini   # Gemini CLI path
+```
+
+### Important notes
+
+- **`DEVIN_MODEL`** — if set, must be a valid model name (e.g. `swe-1.6`). A blank `DEVIN_MODEL=` overrides the value set earlier and causes "Unknown model" errors. Either set it to a valid value or remove the line entirely.
+- **`GOOGLE_API_KEY`** — if this is set in your shell environment, the Gemini CLI will use it instead of `GEMINI_API_KEY`. Set `GOOGLE_API_KEY=` (blank) in your env file to override it.
+- **`GEMINI_TIMEOUT_MS`** — the Gemini CLI retries on rate limits. Setting this to 300000 (5 min) prevents premature timeouts during retries.
 
 ---
 
-## 4. Live Log Streaming Architecture
+## 4. Gemini CLI Authentication
 
-The system uses a Socket.IO-based real-time streaming pipeline:
+The Gemini agent runs the `gemini` CLI binary. Two authentication methods are supported:
 
+### Option 1: API Key (recommended)
+1. Go to **https://aistudio.google.com/apikey** and create a free key
+2. Set `GEMINI_API_KEY=AIzaSy...` in `.env.agent_orchestration`
+3. The free tier gives 15 RPM and 1500 requests/day on Gemini 2.0 Flash
+
+### Option 2: OAuth login
+```bash
+gemini auth login   # opens browser, authenticate with your Google account
 ```
-Worker (Node.js)
-  ↓ emits "agent-log" events
-Flask Socket.IO Server (port 5002)
-  ↓ broadcasts to taskId room
-Browser (Task Details page)
-  ↓ displays in xterm.js terminal
-```
+Leave `GEMINI_API_KEY` unset — the CLI uses its stored OAuth token (`~/.gemini/settings.json`).
 
-**How it works:**
-
-1. When you open the Task Details page, the browser terminal component sends a `join-task` event to Flask, joining the room that matches your task ID.
-2. The Flask server puts that browser socket into the `taskId` room.
-3. When the worker emits an `agent-log` event, Flask broadcasts it to the `taskId` room — only your browser receives it.
-4. The browser terminal displays the ANSI-colored log output in real-time.
-
-**If you don't see logs:** Make sure the Flask Socket.IO server is running (`python3 app.py` in `server-flask/`). The browser terminal must be opened **before** the worker starts processing the task, so it can join the task room. If logs were emitted before you opened the page, they are not replayed — restart the worker and create a new task.
+**Note:** The "Gemini Code Assist for individuals" OAuth tier has been discontinued. If you get an `IneligibleTierError`, use an API key instead.
 
 ---
 
-## 5. Interactive PTY Terminal
+## 5. Step-by-Step: How to Use the UI
 
-Each browser connection to the Flask Socket.IO server automatically gets its own PTY (pseudo-terminal) shell session. When you switch the Task Details terminal to **PTY mode**, you can type commands directly into that shell and see the output streamed back character-by-character.
+### Creating a Task
 
-This is separate from the agent log stream — the PTY gives you a direct interactive shell inside the Flask server process.
+1. Click **Create Task** in the left sidebar
+2. Fill in:
+   - **Title** — what to build (e.g., "Add dark mode toggle")
+   - **Description** — optional detail about requirements
+   - **Pipeline** — `plan-code-review` (default) or `code-only`
+   - **Repository URL** — Git URL for the repo to work on (optional for simple tasks)
+   - **Jira Ticket** — link to a Jira issue (optional)
+3. Click **Create & Queue**
 
----
+### Watching a Task Run
 
-## 6. Real Pull Request Creation (GitHub & Bitbucket)
+1. Go to the **Dashboard** — your task appears with status `queued`
+2. The worker picks it up and status changes to `running`
+3. Click the task to open **Task Details** — you'll see:
+   - Pipeline progress (planning → coding → reviewing)
+   - Live agent logs streaming in real-time
+   - PR tracking once a pull request is created
 
-The worker can automatically push branches and open real Pull Requests on GitHub or Bitbucket if you provide the appropriate credentials.
+### Task Results
 
-**Supported Repository URL Formats:**
-- GitHub: `https://github.com/owner/repo.git` or `git@github.com:owner/repo.git`
-- Bitbucket: `https://bitbucket.org/workspace/repo.git`, `git@bitbucket.org:workspace/repo.git`, or `https://username@bitbucket.org/workspace/repo.git` (with embedded username)
-
-### Storing Credentials Permanently (Recommended)
-Instead of typing your tokens every time, you can save them in a `.env` file so the worker automatically loads them:
-1. Copy the `.env.example` file and rename the copy to `.env`.
-2. Open the `.env` file and uncomment (remove the `#`) from the token you want to use.
-3. Paste your actual token/password next to the `=` sign.
-4. Now, you can simply run `npm run worker` and it will automatically use your saved credentials.
-
----
-
-### Passing Credentials via Terminal (Temporary)
-If you prefer not to use a `.env` file, you can pass them when starting the worker:
-
-#### For GitHub
-You need a GitHub Personal Access Token (PAT) with `repo` scopes.
-
-```bash
-# On Windows PowerShell:
-$env:GITHUB_TOKEN="ghp_your_token_here"
-npm run worker
-
-# On Mac/Linux:
-GITHUB_TOKEN="ghp_your_token_here" npm run worker
-```
-
-#### For Bitbucket
-You can use multiple authentication methods. The system will try each one in order until one succeeds:
-
-1. **BITBUCKET_HTTPS_TOKEN** - Access token for HTTPS operations
-2. **BITBUCKET_TOKEN** - Workspace/Repository Access Token (Bearer)
-3. **BITBUCKET_APP_PASSWORD** - App Password with username (Basic Auth)
-
-**Option A: Using App Password (Recommended for user accounts)**
-Generate an App Password in your Bitbucket settings with `repository:write` and `pullrequest:write` permissions.
-
-```bash
-# On Windows PowerShell:
-$env:BITBUCKET_USERNAME="your_bitbucket_username"
-$env:BITBUCKET_APP_PASSWORD="your_app_password"
-npm run worker
-
-# On Mac/Linux:
-BITBUCKET_USERNAME="your_username" BITBUCKET_APP_PASSWORD="your_app_password" npm run worker
-```
-
-**Option B: Using Repository/Workspace Token**
-```bash
-# On Windows PowerShell:
-$env:BITBUCKET_TOKEN="your_access_token"
-npm run worker
-
-# On Mac/Linux:
-BITBUCKET_TOKEN="your_access_token" npm run worker
-```
-
-**Option C: Using HTTPS Token**
-```bash
-# On Windows PowerShell:
-$env:BITBUCKET_HTTPS_TOKEN="your_https_token"
-npm run worker
-
-# On Mac/Linux:
-BITBUCKET_HTTPS_TOKEN="your_https_token" npm run worker
-```
-
-**Note:** The system will automatically try all available authentication methods in the order above until one succeeds.
-
-#### For GitHub
-```bash
-# Set token in .env or via terminal
-GITHUB_TOKEN="ghp_your_personal_access_token" npm run worker
-
-# Token needs 'repo' scope for push/PR access
-```
+When the task completes, check `server/workspaces/{task-id}/` on your filesystem:
+- `repo/` — the cloned repository with the agent's code changes
+- `planning/`, `coding/`, `reviewing/` — stage workspaces with `prompt.txt` and agent output
 
 ---
 
-## 7. Environment Setup (.env.agent_orchestration)
+## 6. Jira Integration
 
-Instead of passing credentials via terminal each time, use the `.env.agent_orchestration` file:
+### Fetching Jira Issues
 
-```bash
-# Copy the example file
-cp .env.example .env.agent_orchestration
+The Dashboard shows open Jira issues from your configured projects. Issue descriptions are automatically extracted from Atlassian Document Format (ADF).
 
-# Edit this file with your credentials
-```
+Click **Send to agent** on any issue to queue it as a task. The description, priority, and ticket key are passed through automatically.
 
-**Available variables:**
-
-| Variable | Description |
-|----------|-------------|
-| `JIRA_BASE_URL` | Your Jira instance URL |
-| `JIRA_USER` | Jira email |
-| `JIRA_API_TOKEN` | Jira API token |
-| `BITBUCKET_USERNAME` | Bitbucket username |
-| `BITBUCKET_APP_PASSWORD` | Bitbucket app password |
-| `BITBUCKET_TOKEN` | Bitbucket access token |
-| `BITBUCKET_HTTPS_TOKEN` | Bitbucket HTTPS token |
-| `GITHUB_TOKEN` | GitHub Personal Access Token |
-| `DEVIN_PATH` | Path to Devin CLI executable |
-| `DEVIN_PERMISSION_MODE` | Devin permission mode (default: dangerous) |
-| `DEVIN_MODEL` | Devin model selection (optional) |
-| `GEMINI_PATH` | Path to Gemini CLI executable |
-| `GOOGLE_API_KEY` | Google API key for Gemini |
-| `OLLAMA_PATH` | Path to Ollama CLI executable |
-| `OLLAMA_MODEL` | Ollama model (default: qwen2.5-coder:1.5b) |
-| `OLLAMA_HOST` | Ollama host URL (default: http://localhost:11434) |
-| `OLLAMA_ONLY` | Force Ollama-only mode (default: false) |
-| `FLASK_SOCKET_URL` | Flask Socket.IO URL |
-
-The worker automatically loads these when started.
-
-### Finding Agent Paths
-
-To find the paths for Devin and Gemini CLIs:
+### Setup
 
 ```bash
-# Find Devin path
-which devin
-
-# Find Gemini path
-which gemini
-
-# Find Ollama path
-which ollama
+JIRA_BASE_URL=https://your-domain.atlassian.net
+JIRA_USER=your-email@example.com
+JIRA_API_TOKEN=your-api-token
+JIRA_SPACE_KEYS=KAN,PROJ           # comma-separated project keys to fetch
+JIRA_REPO_MAPPING={"KAN":"https://github.com/owner/repo.git"}
 ```
 
-Add these paths to your `.env.agent_orchestration` file.
+### Creating Tasks via API
+
+```bash
+curl -X POST http://localhost:5174/api/tasks/from-jira \
+  -H "Content-Type: application/json" \
+  -d '{
+    "summary": "Fix login bug",
+    "description": "Users cannot login with SSO",
+    "key": "PROJ-123",
+    "priority": "high",
+    "repository": "https://github.com/owner/repo.git"
+  }'
+```
+
+Jira ticket keys are automatically included in commit messages and PR titles (e.g. `PROJ-123 Fix login bug`).
 
 ---
 
-## 8. Agents Edit Real Files
+## 7. Git Integration and Pull Requests
 
-When you provide a **Repository URL**, the AI agents now:
+When a repository URL is provided, agents:
 1. Clone the repository into a temporary workspace
-2. **Edit actual source files** in the working tree (not just output files)
+2. Edit actual source files
 3. Commit changes to a new branch
 4. Push and create a real Pull Request
 
-This means the agent's changes are **real** - they're in your repository, not just in logs.
+### Supported Formats
+
+- GitHub: `https://github.com/owner/repo.git`
+- Bitbucket: `https://bitbucket.org/workspace/repo.git` or `https://username@bitbucket.org/workspace/repo.git`
+
+### Bitbucket Auth (tried in order)
+1. `BITBUCKET_HTTPS_TOKEN`
+2. `BITBUCKET_TOKEN`
+3. `BITBUCKET_APP_PASSWORD` + `BITBUCKET_USERNAME`
+
+### GitHub Auth
+Set `GITHUB_TOKEN` with a Personal Access Token that has `repo` scope.
 
 ---
 
-## 9. Jira Integration
+## 8. Live Log Streaming Architecture
 
-The system can also integrate with Jira to link tasks to Jira tickets:
+```
+Worker (Node.js)
+  ↓ emits "agent-log" events via Socket.IO
+Flask Socket.IO Server (port 5002)
+  ↓ broadcasts to taskId room
+Browser (Task Details page)
+  ↓ displays in terminal
+```
 
-1. Create a task in the UI
-2. Enter a Jira ticket ID (e.g., `PROJ-123`) in the Task Details
-3. The system will fetch the ticket and link it to your task
-4. Results can be posted back to the Jira ticket as comments
-
-Set up via `.env.agent_orchestration`:
-- `JIRA_BASE_URL` - Your Jira instance URL
-- `JIRA_USER` - Your Jira email
-- `JIRA_API_TOKEN` - Your Jira API token
+**If you don't see logs:**
+- Ensure the Flask server is running on port 5002
+- Open the Task Details page **before** the worker starts processing — logs are not replayed after the fact
+- Check your browser console for Socket.IO connection errors
 
 ---
 
-## 10. Cleaning Up Workspaces
+## 9. Troubleshooting
 
-After tasks complete, temporary workspace folders accumulate in `server/workspaces/`. You can safely delete these:
+| Problem | Fix |
+|---------|-----|
+| Worker not claiming tasks | Ensure all 4 processes are running |
+| `Unknown model: ''` on Devin | Remove blank `DEVIN_MODEL=` line or set it to a valid model |
+| Gemini `IneligibleTierError` | Use an API key from https://aistudio.google.com/apikey instead of OAuth |
+| Gemini rate limit / timeout | Set `GEMINI_TIMEOUT_MS=300000` and use `gemini-2.0-flash` model |
+| DeepSeek HTTP 402 | Add credits at https://platform.deepseek.com |
+| Jira shows "(No description provided)" | Verify the Jira ticket has a description; check `JIRA_API_TOKEN` is valid |
+| No logs in browser terminal | Open Task Details before worker starts; check Flask is running |
+| Bitbucket PR creation fails | Try all three token types; check repo URL format |
+
+---
+
+## 10. Cleaning Up
+
+Temporary workspace folders accumulate in `server/workspaces/`. Delete them when no longer needed:
 
 ```bash
 rm -rf server/workspaces/*
 ```
 
-The duplicate `server/server/` folder (if it exists) can also be deleted.
-
 ---
 
 ## Summary
 
-> "This is an orchestration dashboard for AI coding agents. I can go to the web interface and define a coding task. A backend server receives that task and puts it in a queue. A separate background worker watches that queue, picks up the task, and streams live agent logs back to my browser via a real-time Socket.IO pipeline — so I can watch the AI think, code, and review in real-time inside the browser terminal."
+> This is an orchestration dashboard for AI coding agents. Define a coding task in the web UI, the backend queues it, and a background worker picks it up and runs AI agents (Devin, DeepSeek, Gemini) through a configurable pipeline — streaming live logs back to your browser in real-time. Agents can clone real repositories, write code, commit changes, and open pull requests automatically.
 
 Step-by-step: run everything again (after the Flask Socket fix)
 0) Stop old processes
 Close/stop these terminals if they’re still running:
 
+source /Users/jingyin/Downloads/agent_orchestration/server-flask/.venv/bin/activate
 Flask Socket.IO (python app.py in server-flask/)
 Frontend (npm run dev)
 Backend (npm run server)
