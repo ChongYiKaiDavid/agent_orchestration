@@ -157,7 +157,8 @@ button.nav-item{background:transparent;border:0;outline:0;cursor:pointer;width:1
 .dashboard-task-card.selected{background:rgba(74,222,128,0.06);border-color:rgba(74,222,128,0.18)}
 .dashboard-task-top{display:flex;flex-direction:column;gap:4px}
 .dashboard-task-title{font-size:13px;line-height:1.35;color:var(--text);font-weight:700}
-.dashboard-task-meta{margin-top:6px;font-size:12px;line-height:1.45;color:rgba(243,244,246,0.52);font-weight:500}
+.dashboard-task-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;font-size:12px;line-height:1.45;color:rgba(243,244,246,0.52);font-weight:500}
+.dashboard-task-pill{display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;background:rgba(255,255,255,0.06);font-size:11px;font-weight:700;color:#e5e7eb}
 .dashboard-task-chip{flex:0 0 auto;align-self:flex-start;padding:4px 8px;border-radius:999px;background:rgba(255,255,255,0.06);font-size:11px;font-weight:700;color:#e5e7eb}
 
 /* Modern Grid Layout */
@@ -410,7 +411,9 @@ button.nav-item{background:transparent;border:0;outline:0;cursor:pointer;width:1
 .dashboard-jira-status--done{background:rgba(74,222,128,0.15);color:#4ade80}
 .dashboard-jira-priority{font-size:11px;padding:2px 6px;border-radius:4px;background:rgba(255,255,255,0.07);color:rgba(243,244,246,0.6);margin-left:auto}
 .dashboard-jira-summary{font-size:14px;color:rgba(243,244,246,0.9);margin-bottom:4px}
-.dashboard-jira-assignee{font-size:12px;color:rgba(243,244,246,0.5);margin-bottom:8px}
+.dashboard-jira-issuetype{font-size:12px;color:var(--accent-purple,#9d7fff);margin-bottom:4px;font-weight:600}
+.dashboard-jira-assignee{font-size:12px;color:rgba(243,244,246,0.5);margin-bottom:4px}
+.dashboard-jira-source{font-size:11px;color:rgba(243,244,246,0.45);margin-bottom:8px}
 .dashboard-jira-send-btn{font-size:12px;padding:5px 12px;border-radius:5px;border:1px solid var(--accent-purple,#9d7fff);background:transparent;color:var(--accent-purple,#9d7fff);cursor:pointer;transition:background 0.15s,color 0.15s}
 .dashboard-jira-send-btn:hover:not(:disabled){background:var(--accent-purple,#9d7fff);color:#fff}
 .dashboard-jira-send-btn:disabled{opacity:0.55;cursor:default}

@@ -245,6 +245,12 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
                           {task.description && (
                             <div className="dashboard-task-desc">{task.description.slice(0, 80)}{task.description.length > 80 ? '…' : ''}</div>
                           )}
+                          {(task.target_branch || task.jira_ticket) && (
+                            <div className="dashboard-task-meta">
+                              {task.target_branch && <span className="dashboard-task-pill">Branch: {task.target_branch}</span>}
+                              {task.jira_ticket && <span className="dashboard-task-pill">Jira: {task.jira_ticket}</span>}
+                            </div>
+                          )}
                           {prMap[task.id] && (
                             <div className="dashboard-task-pr">
                               <a
@@ -283,7 +289,9 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
                   {issue.priority && <span className="dashboard-jira-priority">{issue.priority}</span>}
                 </div>
                 <div className="dashboard-jira-summary">{issue.summary}</div>
+                {issue.issueType && <div className="dashboard-jira-issuetype">{issue.issueType}</div>}
                 {issue.assignee && <div className="dashboard-jira-assignee">Assigned: {issue.assignee}</div>}
+                {issue.source === 'builtin-demo' && <div className="dashboard-jira-source">Built-in demo issue</div>}
                 <button
                   className="dashboard-jira-send-btn"
                   disabled={jiraSending[issue.key] || jiraSent[issue.key]}

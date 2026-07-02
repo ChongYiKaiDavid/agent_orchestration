@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+
+const originalEnv = { ...process.env };
 import request from 'supertest';
 import express from 'express';
 import db from '../db.js';
@@ -11,26 +13,35 @@ app.use('/api', routes);
 
 describe('Jira Integration Endpoint', () => {
   beforeEach(() => {
+    process.env = { ...originalEnv };
+    delete process.env.JIRA_BASE_URL;
+    delete process.env.JIRA_USER;
+    delete process.env.JIRA_API_TOKEN;
+    delete process.env.JIRA_SPACE_KEYS;
+    delete process.env.RELEASE_BRANCH_ENABLED;
+    delete process.env.DEFAULT_RELEASE_BRANCH;
+    delete process.env.TARGET_BRANCH;
     // Reset database before each test
     db.exec(`
-      DELETE FROM tasks;
-      DELETE FROM executions;
-      DELETE FROM stage_executions;
       DELETE FROM artifacts;
       DELETE FROM pull_requests;
+      DELETE FROM stage_executions;
+      DELETE FROM executions;
       DELETE FROM activity_log;
+      DELETE FROM tasks;
     `);
   });
 
   afterEach(() => {
+    process.env = { ...originalEnv };
     // Clean up after each test
     db.exec(`
-      DELETE FROM tasks;
-      DELETE FROM executions;
-      DELETE FROM stage_executions;
       DELETE FROM artifacts;
       DELETE FROM pull_requests;
+      DELETE FROM stage_executions;
+      DELETE FROM executions;
       DELETE FROM activity_log;
+      DELETE FROM tasks;
     `);
   });
 
@@ -212,6 +223,7 @@ describe('Jira Integration Endpoint', () => {
   });
 
   it('should handle null repository and targetBranch', async () => {
+    process.env.RELEASE_BRANCH_ENABLED = 'false';
     const jiraPayload = {
       summary: 'No repo task',
     };
@@ -223,6 +235,31 @@ describe('Jira Integration Endpoint', () => {
 
     expect(response.body.repository).toBeNull();
     expect(response.body.target_branch).toBeNull();
+  });
+
+  it('should use the configured release branch when no target branch is supplied', async () => {
+    process.env.RELEASE_BRANCH_ENABLED = 'true';
+    process.env.DEFAULT_RELEASE_BRANCH = 'release/2026';
+    process.env.TARGET_BRANCH = 'release/2026';
+
+    const response = await request(app)
+      .post('/api/tasks/from-jira')
+      .send({ summary: 'Release branch task' })
+      .expect(201);
+
+    expect(response.body.target_branch).toBe('release/2026');
+    expect(response.body.description).toContain('Release branch workflow');
+  });
+
+  it('should return built-in demo Jira issues when Jira credentials are absent', async () => {
+    const response = await request(app)
+      .get('/api/jira/issues')
+      .expect(200);
+
+    expect(Array.isArray(response.body)).toBe(true);
+    expect(response.body.length).toBeGreaterThan(0);
+    expect(response.body[0]).toHaveProperty('issueType');
+    expect(response.body[0]).toHaveProperty('source');
   });
 
   it('should filter empty links and attachments', async () => {

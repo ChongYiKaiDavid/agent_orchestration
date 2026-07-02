@@ -691,6 +691,25 @@ export function normalizePipelineId(value) {
   };
   return mapping[value] || value;
 }
+
+export function resolveTargetBranch(explicitBranch) {
+  const trimmed = (explicitBranch || '').toString().trim();
+  if (trimmed) {
+    return trimmed;
+  }
+
+  const releaseBranchEnabled = (() => {
+    const raw = (process.env.RELEASE_BRANCH_ENABLED ?? 'true').toString().trim().toLowerCase();
+    return !['false', '0', 'no', 'off', 'disabled'].includes(raw);
+  })();
+
+  if (!releaseBranchEnabled) {
+    return process.env.TARGET_BRANCH || null;
+  }
+
+  return process.env.DEFAULT_RELEASE_BRANCH || process.env.TARGET_BRANCH || 'main';
+}
+
 export function createTask(payload) {
   const id = crypto.randomUUID();
   const pipelineId = normalizePipelineId(payload.pipeline);
@@ -707,6 +726,8 @@ export function createTask(payload) {
     payload.jiraDescriptionBlock ??
     null;
   
+  const resolvedTargetBranch = resolveTargetBranch(payload.targetBranch || payload.target_branch);
+
   // Load pipeline to get configuration
   const pipeline = getPipelineSync(pipelineId);
   const maxRetries = pipeline?.max_retries || 3;
@@ -732,7 +753,7 @@ export function createTask(payload) {
     normalizedDescription,
     payload.priority || 'medium',
     payload.repository || null,
-    payload.targetBranch || null,
+    resolvedTargetBranch,
     pipelineId,
     normalizedJiraTicket,
     autoBranch,
