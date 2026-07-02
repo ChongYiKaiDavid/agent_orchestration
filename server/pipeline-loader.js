@@ -37,6 +37,34 @@ function validatePipeline(config) {
     throw new Error('Pipeline must have at least one stage');
   }
 
+  // Validate git configuration if present
+  if (config.git) {
+    if (config.git.create_branch !== undefined && typeof config.git.create_branch !== 'boolean') {
+      throw new Error('git.create_branch must be a boolean');
+    }
+    if (config.git.from && typeof config.git.from !== 'string') {
+      throw new Error('git.from must be a string');
+    }
+    if (config.git.pattern && typeof config.git.pattern !== 'string') {
+      throw new Error('git.pattern must be a string');
+    }
+    if (config.git.commit_strategy && typeof config.git.commit_strategy !== 'string') {
+      throw new Error('git.commit_strategy must be a string');
+    }
+  }
+
+  // Validate on_complete hooks if present
+  if (config.on_complete && Array.isArray(config.on_complete)) {
+    for (const hook of config.on_complete) {
+      if (!hook.hook || typeof hook.hook !== 'string') {
+        throw new Error('on_complete hook must have a hook property');
+      }
+      if (hook.config && typeof hook.config !== 'object') {
+        throw new Error('on_complete hook config must be an object');
+      }
+    }
+  }
+
   // Validate each stage
   for (const stage of config.stages) {
     if (!stage.id || typeof stage.id !== 'string') {

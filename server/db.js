@@ -32,7 +32,10 @@ function initSchema() {
       target_branch TEXT,
       pipeline_id TEXT,
       jira_ticket TEXT,
+      auto_branch TEXT,
       retry_count INTEGER NOT NULL DEFAULT 0,
+      max_retries INTEGER NOT NULL DEFAULT 3,
+      post_complete_status TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -111,6 +114,27 @@ function initSchema() {
   // Add jira_ticket column to existing tasks table if it doesn't exist
   try {
     db.exec(`ALTER TABLE tasks ADD COLUMN jira_ticket TEXT`);
+  } catch (e) {
+    // Column already exists, ignore error
+  }
+
+  // Add auto_branch column to existing tasks table if it doesn't exist
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN auto_branch TEXT`);
+  } catch (e) {
+    // Column already exists, ignore error
+  }
+
+  // Add max_retries column to existing tasks table if it doesn't exist
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 3`);
+  } catch (e) {
+    // Column already exists, ignore error
+  }
+
+  // Add post_complete_status column to existing tasks table if it doesn't exist
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN post_complete_status TEXT`);
   } catch (e) {
     // Column already exists, ignore error
   }

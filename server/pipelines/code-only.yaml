@@ -1,6 +1,11 @@
 id: code-only
 name: "Code Only"
 description: "A single-stage pipeline that generates code from the task description."
+git:
+  create_branch: true
+  from: "{git.target_branch}"
+  pattern: "feature/{task_id}"
+  commit_strategy: on_go
 stages:
   - id: coding
     name: Coding
@@ -17,3 +22,11 @@ stages:
       env:
         DEVIN_PERMISSION_MODE: dangerous
         DEVIN_MODEL: claude-3-opus-20240229
+on_complete:
+  - hook: git_push
+  - hook: create_pr
+    config:
+      target_branch: "{git.target_branch}"
+      title: "{task_id}: {task_title}"
+post_complete_status: pr_review
+max_retries: 3

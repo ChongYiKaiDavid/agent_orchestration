@@ -174,6 +174,9 @@ router.post('/tasks/from-jira', express.json(), (req, res) => {
     'Treat this Jira issue as the source of truth. Implement the required behavior and/or provide the exact code changes needed to satisfy the description.'
   ].filter(Boolean).join('\n\n');
 
+  // Auto-generate branch name from Jira key if provided
+  const autoBranch = key ? key.toLowerCase() : null;
+
   const task = createTask({
     title: jiraTitle,
     description: jiraDescriptionBlock,
@@ -182,6 +185,8 @@ router.post('/tasks/from-jira', express.json(), (req, res) => {
     repository: repository || null,
     targetBranch: targetBranch || null,
     jira_ticket: key || null,
+    // Store the auto-generated branch name for later use
+    auto_branch: autoBranch,
   });
 
   res.status(201).json(task);
@@ -549,6 +554,9 @@ router.get('/jira/issues', async (req, res) => {
 const ENV_FILE = path.resolve(process.cwd(), '.env.agent_orchestration');
 
 const CONFIG_KEYS = [
+  'PROJECT_NAME', 'DISPLAY_NAME',
+  'GIT_ENABLED', 'TARGET_BRANCH', 'BRANCH_PATTERN',
+  'CLI_EXECUTABLE', 'MODEL',
   'JIRA_SPACE_KEYS', 'JIRA_BASE_URL', 'JIRA_USER', 'JIRA_API_TOKEN',
   'BITBUCKET_USERNAME', 'BITBUCKET_HTTPS_TOKEN', 'BITBUCKET_TOKEN', 'BITBUCKET_APP_PASSWORD',
   'GITHUB_TOKEN',

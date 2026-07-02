@@ -1,6 +1,11 @@
 id: plan-code-review
 name: Plan - Code - Review
 description: Create a plan, implement the code, then review it.
+git:
+  create_branch: true
+  from: "{git.target_branch}"
+  pattern: "feature/{task_id}"
+  commit_strategy: on_go
 stages:
   - id: planning
     name: Planning
@@ -54,3 +59,11 @@ stages:
         DEEPSEEK_MODEL: deepseek-coder
         DEEPSEEK_BASE_URL: "{DEEPSEEK_BASE_URL}"
         DEEPSEEK_TIMEOUT_MS: "{DEEPSEEK_TIMEOUT_MS}"
+on_complete:
+  - hook: git_push
+  - hook: create_pr
+    config:
+      target_branch: "{git.target_branch}"
+      title: "{task_id}: {task_title}"
+post_complete_status: pr_review
+max_retries: 3
