@@ -5,7 +5,7 @@
   "cli": {
     "command": "node",
     "args": [
-      "/Users/jingyin/Downloads/agent_orchestration/server/cli_runner.js",
+      "server/cli_runner.js",
       "--provider",
       "gemini",
       "--prompt-file",

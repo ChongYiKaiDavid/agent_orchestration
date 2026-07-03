@@ -11,6 +11,7 @@ import { listAgents } from './agents.js';
 import { autoSelectPipelineAndAgent, autoSelectAgentForStage } from './auto-selector.js';
 import { attemptRebaseWithResolution } from './conflict-resolver.js';
 import io from 'socket.io-client';
+import { pathToFileURL } from 'url';
 
 
 export const workspaceRoot = path.resolve(process.cwd(), process.env.TEST_WORKSPACE_ROOT || 'server/workspaces');
@@ -38,7 +39,9 @@ async function runAgentStageModule({ stage, prompt, workspace, onStdout, onStder
 
   let mod;
   try {
-    mod = await import(modulePath);
+    // Node ESM import on Windows requires file:// URLs for absolute paths.
+    const url = pathToFileURL(modulePath).href;
+    mod = await import(url);
   } catch (e) {
     console.error(`[engine] [module-runner] import failed for ${modulePath}:`, e?.stack || e?.message || String(e));
     return null;
