@@ -82,6 +82,23 @@ export async function runPipeline(id: string, payload: any) {
   return parseJson(response);
 }
 
+export async function createPipelineTemplate(payload: any) {
+  const response = await fetch('/api/pipelines/templates', {
+    method: 'POST',
+    headers: defaultHeaders,
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response);
+}
+
+export async function deletePipeline(id: string) {
+  const response = await fetch(`/api/pipelines/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: defaultHeaders,
+  });
+  return parseJson(response);
+}
+
 export async function fetchAgents() {
   const response = await fetch('/api/agents');
   return parseJson(response);

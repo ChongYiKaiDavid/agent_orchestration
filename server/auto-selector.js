@@ -28,27 +28,12 @@ function loadAgentCapabilities() {
 }
 
 function getFallbackCapabilities() {
-  return {
-    devin: {
-      strengths: ['coding', 'refactoring', 'bug fixing', 'testing', 'debugging', 'implementation', 'code review', 'architecture'],
-      complexity: 'high',
-      speed: 'medium',
-      bestFor: ['full implementation', 'complex refactoring', 'multi-file changes', 'detailed coding tasks'],
-    },
-    gemini: {
-      strengths: ['code generation', 'planning', 'review', 'analysis', 'documentation'],
-      complexity: 'medium',
-      speed: 'fast',
-      bestFor: ['planning', 'code review', 'low to medium complexity coding', 'documentation'],
-    },
-    deepseek: {
-      strengths: ['code generation', 'planning', 'review', 'analysis', 'documentation'],
-      complexity: 'medium',
-      speed: 'fast',
-      bestFor: ['planning', 'code review', 'low to medium complexity coding', 'documentation'],
-    },
-  };
+  // No hardcoded “real agents” list.
+  // If the agents directory is missing/unreadable, return an empty capabilities map.
+  // Callers should still be able to proceed (may need to fall back to explicit stage.agent).
+  return {};
 }
+
 
 let AGENT_CAPABILITIES = loadAgentCapabilities();
 
@@ -94,30 +79,70 @@ function detectKeywords(title, description) {
 }
 
 function selectBestAgent(taskType, complexity) {
-  // Planning and review — use DeepSeek (fast, good at analysis)
-  if (taskType === 'planning' || taskType === 'review' || taskType === 'docs') {
-    return 'deepseek';
+  // Choose the best agent based on loaded capabilities.
+  // If we have no capability data, return null so callers can rely on stage.agent.
+  const agentIds = Object.keys(AGENT_CAPABILITIES || {});
+  if (agentIds.length === 0) return null;
+
+  // Simple scoring:
+  // - match task type strengths
+  // - match complexity preference
+  // - fall back to bestFor keyword hits
+  const typeToKeywords = {
+    planning: ['planning', 'requirements', 'design', 'architecture', 'decompose', 'strategy', 'roadmap'],
+    coding: ['coding', 'code', 'implement', 'build', 'refactor', 'fix', 'development'],
+    review: ['review', 'check', 'audit', 'analyze', 'validate', 'test', 'verify'],
+    docs: ['documentation', 'docs', 'readme', 'comment', 'guide', 'manual'],
+  };
+
+  const desired = typeToKeywords[taskType] || [];
+
+  let best = null;
+  let bestScore = -Infinity;
+
+  for (const id of agentIds) {
+    const caps = AGENT_CAPABILITIES[id] || {};
+    const strengths = Array.isArray(caps.strengths) ? caps.strengths : [];
+    const bestFor = Array.isArray(caps.bestFor) ? caps.bestFor : [];
+
+    let score = 0;
+
+    // Strength keyword match
+    for (const kw of desired) {
+      if (strengths.some(s => String(s).toLowerCase().includes(String(kw).toLowerCase()))) {
+        score += 5;
+      }
+    }
+
+    // Complexity alignment
+    if (caps.complexity && String(caps.complexity).toLowerCase() === String(complexity).toLowerCase()) {
+      score += 3;
+    }
+
+    // Best-for match (broad)
+    if (bestFor.length) {
+      score += bestFor.length > 0 ? 1 : 0;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = id;
+    }
   }
 
-  // High complexity coding — use Devin
-  if (complexity === 'high' && taskType === 'coding') {
-    return 'devin';
-  }
-
-  // Low/medium complexity coding — use DeepSeek
-  if (taskType === 'coding') {
-    return complexity === 'low' ? 'deepseek' : 'devin';
-  }
-
-  return 'devin';
+  return best;
 }
 
+
 function selectBestPipeline(taskType, complexity) {
+  // Keep pipeline selection behavior as-is for now.
+  // (Checklist item #1 is specifically about agent/provider hardcoding.)
   if (complexity === 'high' || taskType === 'planning') return 'plan-code-review';
   if (taskType === 'docs' || taskType === 'review') return 'code-only';
   if (taskType === 'coding') return complexity === 'low' ? 'code-only' : 'plan-code-review';
   return 'plan-code-review';
 }
+
 
 export function autoSelectPipelineAndAgent(task) {
   const title = task.title || '';
@@ -149,18 +174,18 @@ export function autoSelectAgentForStage(stageId, task) {
   const description = task.description || '';
 
   const complexity = analyzeTaskComplexity(title, description);
-  const taskType = analyzeTaskType(title, description);
 
-  if (stageId === 'planning' || stageId === 'reviewing') {
-    return 'deepseek';
-  }
+  // Derive taskType primarily from stageId so we don't hardcode provider ids.
+  let taskType;
+  if (stageId === 'planning') taskType = 'planning';
+  else if (stageId === 'coding') taskType = 'coding';
+  else if (stageId === 'reviewing') taskType = 'review';
+  else taskType = analyzeTaskType(title, description);
 
-  if (stageId === 'coding') {
-    return complexity === 'high' ? 'devin' : 'deepseek';
-  }
-
-  return 'devin';
+  // Use capability-based selection.
+  return selectBestAgent(taskType, complexity);
 }
+
 
 function buildReasoningText(taskType, complexity, agent, pipeline) {
   const agents = {

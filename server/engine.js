@@ -1149,7 +1149,7 @@ export async function processTask(task) {
         if (moduleResult) {
           result = moduleResult;
         } else {
-          // Use generic CLI executor that reads from pipeline stage configuration
+          // Pipeline-driven CLI binding (stage.cli > agent json cli)
           result = await runGenericCLIStage({
             stage,
             prompt,

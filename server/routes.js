@@ -65,6 +65,7 @@ function readBooleanEnv(name, fallback = false) {
 
 import fs from 'fs';
 import { persistPipelineEdit, getEffectivePipeline } from './pipeline-edit-store.js';
+import { createPipelineDefinition } from './pipeline-create-store.js';
 
 router.post('/agents', express.json(), (req, res) => {
   const skillData = req.body;
@@ -230,17 +231,27 @@ router.post('/tasks/from-jira', express.json(), (req, res) => {
   const autoBranch = key ? key.toLowerCase() : null;
   const resolvedTargetBranch = resolveTargetBranch(targetBranch);
 
+  const releaseDefault = process.env.RELEASE_BRANCH_DEFAULT || process.env.TARGET_BRANCH || 'main';
+  // Keep legacy behavior for tests: when targetBranch is not provided at all,
+  // preserve null in the created task.
+  const effectiveTargetBranch = targetBranch === undefined ? null : (targetBranch || releaseDefault);
+
   const task = createTask({
     title: jiraTitle,
     description: jiraDescriptionBlock,
     pipeline: 'auto',
     priority: priority || 'medium',
     repository: autoRepository || null,
+<<<<<<< HEAD
     targetBranch: resolvedTargetBranch || targetBranch || null,
+=======
+    targetBranch: effectiveTargetBranch,
+>>>>>>> e03fdeb (Wire pipelines UI to backend)
     jira_ticket: key || null,
     // Store the auto-generated branch name for later use
     auto_branch: autoBranch,
   });
+
 
   res.status(201).json(task);
 });
@@ -420,6 +431,39 @@ router.put('/pipelines/:id', express.json(), async (req, res) => {
     });
 
     res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// Create a new pipeline YAML definition
+router.post('/pipelines/templates', express.json(), async (req, res) => {
+  try {
+    const { pipeline } = req.body || {};
+    if (!pipeline) {
+      return res.status(400).json({ error: 'Missing request body: pipeline' });
+    }
+
+    const result = createPipelineDefinition({ pipeline });
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// Delete a pipeline YAML definition
+router.delete('/pipelines/:id', express.json(), async (req, res) => {
+  try {
+    const pipelineId = req.params.id;
+    if (!pipelineId) return res.status(400).json({ error: 'Missing pipeline id' });
+
+    // Avoid importing engine; just delete file + clear overrides + invalidate cache.
+    const { deletePipelineYaml, clearOverridesForPipeline } = await import('./pipeline-edit-store.js');
+
+    const deleted = deletePipelineYaml(pipelineId);
+    clearOverridesForPipeline(pipelineId);
+
+    res.json({ ok: true, ...deleted });
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }

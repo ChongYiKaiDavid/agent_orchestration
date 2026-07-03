@@ -22,10 +22,17 @@ describe('Jira Integration Endpoint', () => {
     delete process.env.DEFAULT_RELEASE_BRANCH;
     delete process.env.TARGET_BRANCH;
     // Reset database before each test
+    // Delete in dependency order to satisfy foreign keys.
     db.exec(`
+<<<<<<< HEAD
       DELETE FROM artifacts;
       DELETE FROM pull_requests;
       DELETE FROM stage_executions;
+=======
+      DELETE FROM stage_executions;
+      DELETE FROM artifacts;
+      DELETE FROM pull_requests;
+>>>>>>> e03fdeb (Wire pipelines UI to backend)
       DELETE FROM executions;
       DELETE FROM activity_log;
       DELETE FROM tasks;
@@ -35,10 +42,17 @@ describe('Jira Integration Endpoint', () => {
   afterEach(() => {
     process.env = { ...originalEnv };
     // Clean up after each test
+    // Delete in dependency order to satisfy foreign keys.
     db.exec(`
+<<<<<<< HEAD
       DELETE FROM artifacts;
       DELETE FROM pull_requests;
       DELETE FROM stage_executions;
+=======
+      DELETE FROM stage_executions;
+      DELETE FROM artifacts;
+      DELETE FROM pull_requests;
+>>>>>>> e03fdeb (Wire pipelines UI to backend)
       DELETE FROM executions;
       DELETE FROM activity_log;
       DELETE FROM tasks;

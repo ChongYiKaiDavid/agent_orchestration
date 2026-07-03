@@ -69,6 +69,17 @@ export function clearOverridesForPipeline(pipelineId) {
   }
 }
 
+export function deletePipelineYaml(pipelineId) {
+  const yamlPath = pipelineYamlPathById(pipelineId);
+  if (!yamlPath) {
+    // nothing to delete
+    return { ok: true, deleted: false, yamlPath: null };
+  }
+
+  fs.unlinkSync(yamlPath);
+  return { ok: true, deleted: true, yamlPath };
+}
+
 export function getEffectivePipeline(pipeline) {
   if (!pipeline?.id) return pipeline;
   const overrides = getOverrides();

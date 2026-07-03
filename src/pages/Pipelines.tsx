@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import { fetchPipelines, updatePipeline } from '../api';
+import { createPipelineTemplate, deletePipeline, fetchPipelines, updatePipeline } from '../api';
+
 
 const PipelinesPage: React.FC = () => {
   const [selectedPipeline, setSelectedPipeline] = useState('plan-code-review');
@@ -11,6 +12,9 @@ const PipelinesPage: React.FC = () => {
   const [enableGitPush, setEnableGitPush] = useState(true);
   const [enableCreatePr, setEnableCreatePr] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastRunTaskId, setLastRunTaskId] = useState<string>('');
+  const [isCreatingPipeline, setIsCreatingPipeline] = useState(false);
+  const [pipelineCreateError, setPipelineCreateError] = useState<string>('');
 
   // YAML preview is best-effort based on whatever the backend includes in the pipeline payload.
   // (No dedicated fetch endpoint is used.)
@@ -60,8 +64,82 @@ const PipelinesPage: React.FC = () => {
     <div className="pipelines-page">
       <div className="pipelines-header">
         <h1 className="pipelines-title">Pipelines</h1>
-        <button className="pipelines-new-btn" type="button">
-          + New Pipeline
+        <button
+          className="pipelines-new-btn"
+          type="button"
+          onClick={async () => {
+            setPipelineCreateError('');
+            setIsCreatingPipeline(true);
+            try {
+              const id = window.prompt('New pipeline id (must be unique)', `unique-pipeline-id`) || '';
+              const pipelineId = id.trim();
+              if (!pipelineId) return;
+
+              const name = window.prompt('Pipeline display name', pipelineId) || '';
+              const pipelineName = name.trim();
+              if (!pipelineName) return;
+
+              const existingNameTaken = pipelines.some((p) => String(p?.name || '').trim().toLowerCase() === pipelineName.toLowerCase());
+              if (existingNameTaken) {
+                setPipelineCreateError(`Pipeline name '${pipelineName}' is already taken. Please choose another name.`);
+                return;
+              }
+
+
+              let stages: any[] = [];
+              // simple scratchpad loop; user adds stages one-by-one
+              while (true) {
+                const add = window.confirm('Add a stage to this new pipeline?');
+                if (!add) break;
+
+                const stageName = window.prompt('Stage name', `Stage ${stages.length + 1}`) || '';
+                const stageDisplayName = stageName.trim();
+                if (!stageDisplayName) break;
+
+                const agent = (window.prompt('Agent (devin | gemini | deepseek)', 'devin') || 'devin').trim();
+                const stageSummary = (window.prompt('Stage summary', 'Describe what this stage does') || '').trim();
+                if (!agent || !stageSummary) {
+                  // require minimal shape; stop adding further
+                  break;
+                }
+
+                stages.push({
+                  id: `stage-${stages.length + 1}`,
+                  name: stageDisplayName,
+                  agent,
+                  summary: stageSummary,
+                });
+              }
+
+              if (stages.length === 0) {
+                setPipelineCreateError('Please add at least one stage to create a pipeline.');
+                return;
+              }
+
+              const template = {
+                id: pipelineId,
+                name: pipelineName,
+                description: `Pipeline created by UI (${new Date().toLocaleString()})`,
+                stages,
+              };
+
+              await createPipelineTemplate({ pipeline: template });
+              await load();
+
+              setSelectedPipeline(pipelineId);
+              setSelectedStage(0);
+              setLastRunTaskId('');
+            } catch (err) {
+              setPipelineCreateError(err instanceof Error ? err.message : String(err));
+            } finally {
+              setIsCreatingPipeline(false);
+            }
+          }}
+          disabled={isCreatingPipeline}
+          aria-label="create-pipeline"
+          title={isCreatingPipeline ? 'Creating pipeline...' : 'Create a pipeline from scratch'}
+        >
+          {isCreatingPipeline ? 'Creating…' : '+ Create Pipeline'}
         </button>
       </div>
 
@@ -97,18 +175,79 @@ const PipelinesPage: React.FC = () => {
             <div className="pipelines-detail-value">{current?.id}</div>
           </div>
 
+              <div className="pipelines-detail-field" style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              className="pipelines-remove-btn"
+              disabled={!current || current?.builtIn}
+              aria-label="delete-pipeline"
+              title={current?.builtIn ? 'Built-in pipelines cannot be deleted' : 'Delete this pipeline YAML'}
+              onClick={async () => {
+                if (!current?.id) return;
+                if (current?.builtIn) return;
+
+                const deletedId = String(current.id);
+                const ok = window.confirm(`Delete pipeline '${deletedId}'? This will remove server/pipelines/${deletedId}.yaml`);
+                if (!ok) return;
+
+                try {
+                  await deletePipeline(deletedId);
+
+                  // Fetch fresh list explicitly and update state from that result.
+                  const items = await fetchPipelines();
+                  const nextPipelines = Array.isArray(items) ? items : [];
+
+                  // Hard-filter just in case backend returns stale entries.
+                  const filtered = nextPipelines.filter((p) => String(p?.id) !== deletedId);
+
+                  setPipelines(filtered);
+                  setYamlByPipelineId((prev) => {
+                    if (!prev || typeof prev !== 'object') return prev;
+                    const { [deletedId]: _removed, ...rest } = prev as any;
+                    return rest;
+                  });
+
+                  setSelectedStage(0);
+                  setLastRunTaskId('');
+
+                  const nextId = filtered[0]?.id;
+                  setSelectedPipeline(nextId ? String(nextId) : '');
+                } catch (err) {
+                  // eslint-disable-next-line no-console
+                  console.error(err);
+                  setPipelineYamlLoadError(err instanceof Error ? err.message : String(err));
+                }
+              }}
+            >
+              Delete Pipeline
+            </button>
+          </div>
+
           <div className="pipelines-detail-field">
             <span className="pipelines-detail-label">Display Name</span>
             <div className="pipelines-detail-value">{current?.name}</div>
           </div>
 
-          <div className="pipelines-stages-section">
-            <div className="pipelines-detail-label">Stages</div>
+              <div className="pipelines-stages-section">
+                <div className="pipelines-detail-label">Stages</div>
 
-            {/* Back-compat: tests look for a "release-ready" button */}
-            <button type="button" aria-label="release-ready" style={{ display: 'none' }}>
-              release-ready
-            </button>
+                {pipelineCreateError ? (
+                  <div style={{ color: '#ff6b6b', fontSize: 12, marginTop: 6, marginBottom: 8 }}>
+                    {pipelineCreateError}
+                  </div>
+                ) : null}
+
+
+                {lastRunTaskId ? (
+                  <div style={{ color: '#7ee787', fontSize: 12, marginTop: 6, marginBottom: 8 }}>
+                    Last run task id: {lastRunTaskId}
+                  </div>
+                ) : null}
+
+                {/* Back-compat: tests look for a "release-ready" button */}
+                <button type="button" aria-label="release-ready" style={{ display: 'none' }}>
+                  release-ready
+                </button>
 
             <div className="pipelines-stages-diagram">
               {current?.stages?.map((stage: any, idx: number) => (
