@@ -64,8 +64,9 @@ function readBooleanEnv(name, fallback = false) {
 }
 
 import fs from 'fs';
-import { persistPipelineEdit, getEffectivePipeline } from './pipeline-edit-store.js';
+import { persistPipelineEdit, getEffectivePipeline, getPipelineYamlPreview, savePipelineYaml } from './pipeline-edit-store.js';
 import { createPipelineDefinition } from './pipeline-create-store.js';
+import { invalidatePipelinesCache } from './pipelines.js';
 
 router.post('/agents', express.json(), (req, res) => {
   const skillData = req.body;
@@ -383,7 +384,11 @@ router.get('/events', (req, res) => {
 router.get('/pipelines', async (req, res) => {
   const pipelines = await getPipelineDefinitions();
   // Apply any persisted edits (overrides) so UI sees latest configuration.
-  const effective = pipelines.map((p) => getEffectivePipeline(p));
+  const effective = pipelines.map((p) => {
+    const merged = getEffectivePipeline(p);
+    const { yamlPath, yamlText } = getPipelineYamlPreview(merged);
+    return { ...merged, yamlPath, rawYaml: yamlText };
+  });
   res.json(effective);
 });
 
@@ -393,7 +398,23 @@ router.get('/pipelines/:id', async (req, res) => {
   if (!pipeline) {
     return res.status(404).json({ error: 'Pipeline not found' });
   }
-  res.json(getEffectivePipeline(pipeline));
+  const merged = getEffectivePipeline(pipeline);
+  const { yamlPath, yamlText } = getPipelineYamlPreview(merged);
+  res.json({ ...merged, yamlPath, rawYaml: yamlText });
+});
+
+router.put('/pipelines/:id/yaml', express.json({ limit: '1mb' }), async (req, res) => {
+  try {
+    const pipelineId = req.params.id;
+    const { yamlText } = req.body || {};
+
+    if (!pipelineId) return res.status(400).json({ error: 'Missing pipeline id' });
+
+    const result = savePipelineYaml(pipelineId, yamlText);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 // Persist pipeline edits (stage agent etc.)
@@ -457,6 +478,7 @@ router.delete('/pipelines/:id', express.json(), async (req, res) => {
 
     const deleted = deletePipelineYaml(pipelineId);
     clearOverridesForPipeline(pipelineId);
+    invalidatePipelinesCache();
 
     res.json({ ok: true, ...deleted });
   } catch (err) {

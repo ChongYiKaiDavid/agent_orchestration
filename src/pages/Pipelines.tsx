@@ -1,14 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import { createPipelineTemplate, deletePipeline, fetchPipelines, updatePipeline } from '../api';
-
+import { createPipelineTemplate, deletePipeline, fetchPipelines, savePipelineYaml, updatePipeline } from '../api';
 
 const PipelinesPage: React.FC = () => {
   const [selectedPipeline, setSelectedPipeline] = useState('plan-code-review');
   const [selectedStage, setSelectedStage] = useState(0);
   const [pipelines, setPipelines] = useState<any[]>([]);
   const [yamlByPipelineId, setYamlByPipelineId] = useState<Record<string, string>>({});
+  const [yamlPathByPipelineId, setYamlPathByPipelineId] = useState<Record<string, string | null>>({});
   const [pipelineYamlLoadError, setPipelineYamlLoadError] = useState<string>('');
+  const [pipelineYamlSaveError, setPipelineYamlSaveError] = useState<string>('');
+  const [pipelineYamlSaveStatus, setPipelineYamlSaveStatus] = useState<string>('');
+  const [isSavingYaml, setIsSavingYaml] = useState(false);
   const [enableGitPush, setEnableGitPush] = useState(true);
   const [enableCreatePr, setEnableCreatePr] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
@@ -27,15 +30,20 @@ const PipelinesPage: React.FC = () => {
         setPipelines(items);
 
         const nextById: Record<string, string> = {};
+        const nextYamlPaths: Record<string, string | null> = {};
         for (const p of items) {
-          if (typeof p?.yaml === 'string') nextById[p.id] = p.yaml;
+          if (!p?.id) continue;
+          if (typeof p?.rawYaml === 'string') nextById[p.id] = p.rawYaml;
+          else if (typeof p?.yaml === 'string') nextById[p.id] = p.yaml;
           else if (typeof p?.definitionYaml === 'string') nextById[p.id] = p.definitionYaml;
-          else if (typeof p?.rawYaml === 'string') nextById[p.id] = p.rawYaml;
+          nextYamlPaths[p.id] = typeof p?.yamlPath === 'string' ? p.yamlPath : null;
         }
         setYamlByPipelineId(nextById);
+        setYamlPathByPipelineId(nextYamlPaths);
       } else {
         setPipelines([]);
         setYamlByPipelineId({});
+        setYamlPathByPipelineId({});
       }
     } catch (e) {
       setPipelineYamlLoadError(e instanceof Error ? e.message : String(e));
@@ -55,6 +63,9 @@ const PipelinesPage: React.FC = () => {
     currentStages?.[selectedStage] ||
     currentStages?.[0] ||
     ({ id: '', name: '', agent: '', summary: '', verifyFiles: [] } as any);
+  const currentYaml = current?.id ? yamlByPipelineId[current.id] || '' : '';
+  const currentYamlPath = current?.id ? yamlPathByPipelineId[current.id] || null : null;
+  const canSaveYaml = Boolean(current?.id && currentYamlPath && !current?.builtIn);
 
   if (isLoading) {
     return <div className="pipelines-page" />;
@@ -85,13 +96,34 @@ const PipelinesPage: React.FC = () => {
                 return;
               }
 
+              const descriptionInput = window.prompt('Pipeline description', '') || '';
+              const pipelineDescription = descriptionInput.trim();
+
 
               let stages: any[] = [];
-              // simple scratchpad loop; user adds stages one-by-one
-              while (true) {
-                const add = window.confirm('Add a stage to this new pipeline?');
-                if (!add) break;
+              const firstStageName = window.prompt('Stage name', 'Stage 1') || '';
+              const firstStageDisplayName = firstStageName.trim();
+              if (!firstStageDisplayName) {
+                setPipelineCreateError('Please enter a name for the first stage.');
+                return;
+              }
 
+              const firstStageAgent = (window.prompt('Agent (devin | gemini | deepseek)', 'devin') || 'devin').trim();
+              const firstStageSummary = (window.prompt('Stage summary', 'Describe what this stage does') || '').trim();
+              if (!firstStageAgent || !firstStageSummary) {
+                setPipelineCreateError('Please enter an agent and stage summary for the first stage.');
+                return;
+              }
+
+              stages.push({
+                id: 'stage-1',
+                name: firstStageDisplayName,
+                agent: firstStageAgent,
+                summary: firstStageSummary,
+              });
+
+              // Additional stages are optional.
+              while (window.confirm('Add another stage to this pipeline?')) {
                 const stageName = window.prompt('Stage name', `Stage ${stages.length + 1}`) || '';
                 const stageDisplayName = stageName.trim();
                 if (!stageDisplayName) break;
@@ -99,7 +131,6 @@ const PipelinesPage: React.FC = () => {
                 const agent = (window.prompt('Agent (devin | gemini | deepseek)', 'devin') || 'devin').trim();
                 const stageSummary = (window.prompt('Stage summary', 'Describe what this stage does') || '').trim();
                 if (!agent || !stageSummary) {
-                  // require minimal shape; stop adding further
                   break;
                 }
 
@@ -111,15 +142,10 @@ const PipelinesPage: React.FC = () => {
                 });
               }
 
-              if (stages.length === 0) {
-                setPipelineCreateError('Please add at least one stage to create a pipeline.');
-                return;
-              }
-
               const template = {
                 id: pipelineId,
                 name: pipelineName,
-                description: `Pipeline created by UI (${new Date().toLocaleString()})`,
+                description: pipelineDescription,
                 stages,
               };
 
@@ -206,6 +232,11 @@ const PipelinesPage: React.FC = () => {
                     const { [deletedId]: _removed, ...rest } = prev as any;
                     return rest;
                   });
+                  setYamlPathByPipelineId((prev) => {
+                    if (!prev || typeof prev !== 'object') return prev;
+                    const { [deletedId]: _removed, ...rest } = prev as any;
+                    return rest;
+                  });
 
                   setSelectedStage(0);
                   setLastRunTaskId('');
@@ -262,7 +293,64 @@ const PipelinesPage: React.FC = () => {
                   {idx < current.stages.length - 1 && <span className="pipelines-stage-arrow">−</span>}
                 </React.Fragment>
               ))}
-              <button className="pipelines-add-stage" type="button">
+              <button
+                className="pipelines-add-stage"
+                type="button"
+                disabled={!current || current?.builtIn}
+                onClick={async () => {
+                  if (!current) return;
+                  if (current?.builtIn) return;
+
+                  const stageNumber = (current.stages?.length || 0) + 1;
+                  const stageName = window.prompt('Stage name', `Stage ${stageNumber}`) || '';
+                  const name = stageName.trim();
+                  if (!name) return;
+
+                  const agent = (window.prompt('Agent (devin | gemini | deepseek)', 'devin') || 'devin').trim();
+                  const stageSummary = (window.prompt('Stage summary', 'Describe what this stage does') || '').trim();
+                  if (!agent || !stageSummary) return;
+
+                  const nextStages = [
+                    ...(current.stages || []),
+                    {
+                      id: `stage-${stageNumber}`,
+                      name,
+                      agent,
+                      summary: stageSummary,
+                    },
+                  ];
+
+                  // Optimistic UI update
+                  setPipelines((prev) =>
+                    prev.map((p) => (p.id === current.id ? { ...p, stages: nextStages } : p))
+                  );
+
+                  try {
+                    await updatePipeline(String(current.id), {
+                      stages: nextStages,
+                      writeToYaml: true,
+                    });
+                    // Ensure selected pipeline reflects YAML changes.
+                    await load();
+                    // Some backends may return pipelines without the updated stages until cache invalidation;
+                    // set state explicitly from nextStages as well.
+                    setSelectedPipeline(String(current.id));
+                    setPipelines((prev) =>
+                      prev.map((p) => (p.id === current.id ? { ...p, stages: nextStages } : p))
+                    );
+                    setSelectedStage(nextStages.length - 1);
+                    setPipelineYamlLoadError('');
+                  } catch (err) {
+                    setPipelineYamlLoadError(err instanceof Error ? err.message : String(err));
+                    // Revert by reloading best-effort
+                    try {
+                      await load();
+                    } catch {
+                      // ignore
+                    }
+                  }
+                }}
+              >
                 + Add Stage
               </button>
             </div>
@@ -271,7 +359,52 @@ const PipelinesPage: React.FC = () => {
           <div className="pipelines-stage-detail">
             <div className="pipelines-stage-header">
               <h3 className="pipelines-stage-title">Stage {selectedStage + 1} Details</h3>
-              <button className="pipelines-remove-btn" type="button">
+              <button
+                className="pipelines-remove-btn"
+                type="button"
+                disabled={!current || current?.builtIn || !current?.stages?.length}
+                onClick={async () => {
+                  if (!current || current?.builtIn) return;
+                  const stages = current.stages || [];
+                  if (stages.length <= 1) {
+                    setPipelineYamlSaveError('A pipeline must keep at least one stage.');
+                    return;
+                  }
+
+                  const stage = stages[selectedStage] || stages[stages.length - 1];
+                  const stageLabel = stage?.name || stage?.id || `Stage ${selectedStage + 1}`;
+                  const ok = window.confirm(`Remove '${stageLabel}' from pipeline '${current.id}'?`);
+                  if (!ok) return;
+
+                  const nextStages = stages.filter((_: any, idx: number) => idx !== selectedStage);
+                  const nextSelectedStage = Math.max(0, Math.min(selectedStage, nextStages.length - 1));
+
+                  setPipelines((prev) =>
+                    prev.map((p) => (p.id === current.id ? { ...p, stages: nextStages } : p))
+                  );
+
+                  try {
+                    await updatePipeline(String(current.id), {
+                      stages: nextStages,
+                      writeToYaml: true,
+                    });
+                    await load();
+                    setSelectedPipeline(String(current.id));
+                    setSelectedStage(nextSelectedStage);
+                    setPipelineYamlLoadError('');
+                    setPipelineYamlSaveError('');
+                    setPipelineYamlSaveStatus('Stage removed and YAML saved.');
+                  } catch (err) {
+                    setPipelineYamlLoadError(err instanceof Error ? err.message : String(err));
+                    try {
+                      await load();
+                    } catch {
+                      // ignore
+                    }
+                  }
+                }}
+                title={current?.builtIn ? 'Built-in pipelines cannot be modified' : 'Remove the selected stage'}
+              >
                 Remove
               </button>
             </div>
@@ -365,7 +498,18 @@ const PipelinesPage: React.FC = () => {
                   {pipelineYamlLoadError ? (
                     <div style={{ color: '#ff6b6b', fontSize: 12, marginBottom: 8 }}>{pipelineYamlLoadError}</div>
                   ) : null}
-                  <pre
+                  {pipelineYamlSaveError ? (
+                    <div style={{ color: '#ff6b6b', fontSize: 12, marginBottom: 8 }}>{pipelineYamlSaveError}</div>
+                  ) : null}
+                  {pipelineYamlSaveStatus ? (
+                    <div style={{ color: '#7ee787', fontSize: 12, marginBottom: 8 }}>{pipelineYamlSaveStatus}</div>
+                  ) : null}
+                  {!currentYamlPath ? (
+                    <div style={{ color: '#a7b6d4', fontSize: 12, marginBottom: 8 }}>
+                      This pipeline is not backed by a YAML file, so the preview is read-only.
+                    </div>
+                  ) : null}
+                  <textarea
                     className="pipelines-yaml-preview"
                     style={{
                       background: '#0b1020',
@@ -378,14 +522,67 @@ const PipelinesPage: React.FC = () => {
                       fontSize: 12,
                       whiteSpace: 'pre-wrap',
                       margin: 0,
+                      width: '100%',
+                      minHeight: 160,
+                      fontFamily:
+                        'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                      opacity: currentYamlPath ? 1 : 0.7,
                     }}
-                  >
-                    {(() => {
-                      const p = current;
-                      if (!p) return '';
-                      return yamlByPipelineId[p.id] || `Pipeline JSON:\n${JSON.stringify(p, null, 2)}`;
-                    })()}
-                  </pre>
+                    spellCheck={false}
+                    readOnly={!currentYamlPath}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      if (!current?.id) return;
+                      setPipelineYamlLoadError('');
+                      setPipelineYamlSaveError('');
+                      setPipelineYamlSaveStatus('');
+                      setYamlByPipelineId((prev) => ({ ...(prev || {}), [current.id]: next }));
+                    }}
+                    value={currentYaml}
+                  />
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button
+                      type="button"
+                      className="pipelines-new-btn"
+                      disabled={!canSaveYaml || isSavingYaml}
+                      onClick={async () => {
+                        if (!current?.id || !canSaveYaml) return;
+                        setPipelineYamlLoadError('');
+                        setPipelineYamlSaveError('');
+                        setPipelineYamlSaveStatus('');
+                        setIsSavingYaml(true);
+                        try {
+                          await savePipelineYaml(String(current.id), currentYaml);
+                          setPipelineYamlSaveStatus('YAML saved.');
+                          await load();
+                          setSelectedPipeline(String(current.id));
+                          setSelectedStage(0);
+                        } catch (err) {
+                          setPipelineYamlSaveError(err instanceof Error ? err.message : String(err));
+                        } finally {
+                          setIsSavingYaml(false);
+                        }
+                      }}
+                    >
+                      {isSavingYaml ? 'Saving…' : 'Save YAML'}
+                    </button>
+                    <button
+                      type="button"
+                      className="pipelines-remove-btn"
+                      disabled={!current?.id || !currentYamlPath || isSavingYaml}
+                      onClick={async () => {
+                        if (!current?.id || !currentYamlPath) return;
+                        setPipelineYamlLoadError('');
+                        setPipelineYamlSaveError('');
+                        setPipelineYamlSaveStatus('');
+                        await load();
+                        setSelectedPipeline(String(current.id));
+                        setSelectedStage(0);
+                      }}
+                    >
+                      Reload YAML
+                    </button>
+                  </div>
                 </div>
               </div>
 

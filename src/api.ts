@@ -73,6 +73,15 @@ export async function updatePipeline(id: string, payload: any) {
   return parseJson(response);
 }
 
+export async function savePipelineYaml(id: string, yamlText: string) {
+  const response = await fetch(`/api/pipelines/${encodeURIComponent(id)}/yaml`, {
+    method: 'PUT',
+    headers: defaultHeaders,
+    body: JSON.stringify({ yamlText }),
+  });
+  return parseJson(response);
+}
+
 export async function runPipeline(id: string, payload: any) {
   const response = await fetch(`/api/pipelines/${encodeURIComponent(id)}/run`, {
     method: 'POST',

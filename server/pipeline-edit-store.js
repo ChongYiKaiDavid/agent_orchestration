@@ -39,6 +39,18 @@ function pipelineYamlPathById(pipelineId) {
   return null;
 }
 
+function pipelineYamlTextById(pipelineId) {
+  const yamlPath = pipelineYamlPathById(pipelineId);
+  if (!yamlPath) {
+    return { yamlPath: null, yamlText: null };
+  }
+
+  return {
+    yamlPath,
+    yamlText: fs.readFileSync(yamlPath, 'utf8'),
+  };
+}
+
 function validatePipeline(config) {
   if (!config?.id || typeof config.id !== 'string') throw new Error('Pipeline must have an id');
   if (!config?.name || typeof config.name !== 'string') throw new Error('Pipeline must have a name');
@@ -78,6 +90,45 @@ export function deletePipelineYaml(pipelineId) {
 
   fs.unlinkSync(yamlPath);
   return { ok: true, deleted: true, yamlPath };
+}
+
+export function getPipelineYamlPreview(pipeline) {
+  if (!pipeline?.id) {
+    return { yamlPath: null, yamlText: '' };
+  }
+
+  const fromFile = pipelineYamlTextById(pipeline.id);
+  if (fromFile.yamlText !== null) {
+    return fromFile;
+  }
+
+  return {
+    yamlPath: null,
+    yamlText: yaml.dump(pipeline, { lineWidth: -1, noRefs: true }),
+  };
+}
+
+export function savePipelineYaml(pipelineId, yamlText) {
+  if (typeof yamlText !== 'string' || !yamlText.trim()) {
+    throw new Error('Pipeline YAML text is required');
+  }
+
+  const yamlPath = pipelineYamlPathById(pipelineId);
+  if (!yamlPath) {
+    throw new Error(`No YAML file found for pipeline id '${pipelineId}' in server/pipelines`);
+  }
+
+  const parsed = yaml.load(yamlText);
+  validatePipeline(parsed);
+  if (parsed.id !== pipelineId) {
+    throw new Error(`Pipeline YAML id must remain '${pipelineId}'`);
+  }
+
+  fs.writeFileSync(yamlPath, yamlText, 'utf8');
+  invalidatePipelinesCache();
+  clearOverridesForPipeline(pipelineId);
+
+  return { ok: true, yamlPath };
 }
 
 export function getEffectivePipeline(pipeline) {
@@ -151,6 +202,7 @@ export function persistPipelineEdit({ pipelineId, updatedPipeline, writeToYaml }
 
     // Apply YAML overwrite
     applyOverridesToYaml(pipelineId, effective);
+    invalidatePipelinesCache();
 
     // Clear override after successful YAML write
     const overridesAfter = getOverrides();
