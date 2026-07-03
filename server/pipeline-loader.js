@@ -51,6 +51,9 @@ function validatePipeline(config) {
     if (config.git.commit_strategy && typeof config.git.commit_strategy !== 'string') {
       throw new Error('git.commit_strategy must be a string');
     }
+    if (config.git.auto_merge !== undefined && typeof config.git.auto_merge !== 'boolean') {
+      throw new Error('git.auto_merge must be a boolean');
+    }
   }
 
   // Validate on_complete hooks if present

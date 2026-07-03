@@ -1398,7 +1398,7 @@ export async function processTask(task) {
             }
 
 
-            spawnSync('git', ['checkout', '-b', branchName], { cwd: repositoryPath });
+            createBranchFromBase(repositoryPath, branchName, task.target_branch, pipeline);
             spawnSync('git', ['add', '.'], { cwd: repositoryPath });
             const commitMessage = task.jira_ticket ? `${task.jira_ticket} ${task.title}` : task.title;
             spawnSync('git', ['commit', '-m', commitMessage], { cwd: repositoryPath });
@@ -1726,7 +1726,7 @@ async function createPullRequest(task, executionId, repositoryPath, finalVerdict
           }
 
 
-          spawnSync('git', ['checkout', '-b', branchName], { cwd: repositoryPath });
+          createBranchFromBase(repositoryPath, branchName, task.target_branch, pipeline);
           spawnSync('git', ['add', '.'], { cwd: repositoryPath });
           const commitMessage = task.jira_ticket ? `${task.jira_ticket} ${task.title}` : task.title;
           spawnSync('git', ['commit', '-m', commitMessage], { cwd: repositoryPath });
@@ -2167,6 +2167,44 @@ export function getAgentDefinitions() {
   return listAgents();
 }
 
+/**
+ * Create a new branch, optionally based on a configured base (e.g., release/target branch).
+ * Attempts to create the branch from `origin/<baseBranch>` when pipeline.git.from === 'release'
+ * or when a baseBranch is provided. Falls back to creating from current HEAD.
+ */
+function createBranchFromBase(repositoryPath, branchName, baseBranch, pipeline) {
+  try {
+    const fromConfig = pipeline?.git?.from || '';
+    const useReleaseBase = String(fromConfig).toLowerCase() === 'release' || !!baseBranch;
+
+    if (useReleaseBase && baseBranch) {
+      // Try to fetch the target branch and create from origin/target
+      try {
+        spawnSync('git', ['fetch', 'origin', baseBranch], { cwd: repositoryPath });
+        const checkoutResult = spawnSync('git', ['checkout', '-b', branchName, `origin/${baseBranch}`], { cwd: repositoryPath, encoding: 'utf8' });
+        if (checkoutResult.status === 0) return true;
+      } catch (e) {
+        // ignore and fallthrough to other attempts
+      }
+
+      // Try creating branch directly from the base branch name
+      try {
+        const checkoutResult2 = spawnSync('git', ['checkout', '-b', branchName, baseBranch], { cwd: repositoryPath, encoding: 'utf8' });
+        if (checkoutResult2.status === 0) return true;
+      } catch (e) {
+        // fallthrough
+      }
+    }
+
+    // Fallback: create branch from current HEAD
+    spawnSync('git', ['checkout', '-b', branchName], { cwd: repositoryPath });
+    return true;
+  } catch (error) {
+    console.error('[createBranchFromBase] failed to create branch', error?.message || String(error));
+    return false;
+  }
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Git hook implementations for pipeline on_complete hooks
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2225,7 +2263,7 @@ async function executeGitPushHook(task, repositoryPath, pipeline) {
 
     // Create and checkout branch if git.create_branch is configured
     if (pipeline.git?.create_branch) {
-      spawnSync('git', ['checkout', '-b', branchName], { cwd: repositoryPath });
+      createBranchFromBase(repositoryPath, branchName, task.target_branch, pipeline);
     }
 
     // Add and commit changes
@@ -2398,6 +2436,27 @@ async function executeCreatePRHook(task, executionId, repositoryPath, pipeline, 
           message: `Pull request created: ${prUrl}`,
           details: JSON.stringify({ prUrl, prNumber, branch: branchName }),
         });
+        // Optionally auto-merge the PR into the target branch if pipeline config requests it
+        if (config.auto_merge) {
+          try {
+            const mergeUrl = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repoSlug}/pullrequests/${prNumber}/merge`;
+            const mergeResp = await fetch(mergeUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': authMethod.header,
+                'Content-Type': 'application/json'
+              },
+            });
+            if (mergeResp.ok) {
+              console.log(`[create_pr] Bitbucket PR ${prNumber} merged successfully`);
+              recordActivity({ taskId: task.id, event_type: 'pr_merged', message: `PR ${prNumber} merged via API`, details: JSON.stringify({ prNumber }) });
+            } else {
+              console.warn(`[create_pr] Bitbucket auto-merge failed for PR ${prNumber}: ${mergeResp.status}`);
+            }
+          } catch (e) {
+            console.error('[create_pr] Bitbucket auto-merge error:', e?.message || String(e));
+          }
+        }
       } else {
         console.error(`[create_pr] Bitbucket API failed with all auth methods. Last error: ${lastError}`);
       }
@@ -2456,6 +2515,29 @@ async function executeCreatePRHook(task, executionId, repositoryPath, pipeline, 
           message: `Pull request created: ${prUrl}`,
           details: JSON.stringify({ prUrl, prNumber, branch: branchName }),
         });
+        // Optionally auto-merge the PR into the target branch if pipeline config requests it
+        if (config.auto_merge) {
+          try {
+            const mergeResp = await fetch(`https://api.github.com/repos/${owner}/${repoName}/pulls/${prNumber}/merge`, {
+              method: 'PUT',
+              headers: {
+                'Authorization': `Bearer ${githubToken}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ commit_title: `Merge PR ${prNumber}: ${prTitle}` })
+            });
+            if (mergeResp.ok) {
+              console.log(`[create_pr] GitHub PR ${prNumber} merged successfully`);
+              recordActivity({ taskId: task.id, event_type: 'pr_merged', message: `PR ${prNumber} merged via API`, details: JSON.stringify({ prNumber }) });
+            } else {
+              const errText = await mergeResp.text();
+              console.warn(`[create_pr] GitHub auto-merge failed for PR ${prNumber}: ${mergeResp.status} ${errText}`);
+            }
+          } catch (e) {
+            console.error('[create_pr] GitHub auto-merge error:', e?.message || String(e));
+          }
+        }
       } else {
         const errorData = await prResponse.text();
         console.error(`[create_pr] GitHub API failed to create PR: ${prResponse.status} ${errorData}`);
