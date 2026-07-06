@@ -19,10 +19,10 @@ export const workspaceRoot = path.resolve(process.cwd(), process.env.TEST_WORKSP
 // ──────────────────────────────────────────────────────────────────────────────
 // Generic CLI executor - reads CLI config from pipeline stage
 // ──────────────────────────────────────────────────────────────────────────────
-function substituteEnvVars(value) {
+function substituteEnvVars(value, extraEnv = {}) {
   if (typeof value !== 'string') return value;
   return value.replace(/\{([^}]+)\}/g, (match, varName) => {
-    return process.env[varName] || match;
+    return process.env[varName] || extraEnv[varName] || match;
   });
 }
 
@@ -116,10 +116,10 @@ async function runGenericCLIStage({ stage, prompt, workspace, onStdout, onStderr
     const envVars = cliConfig.env ? { ...cliConfig.env } : {};
 
     // Substitute environment variables
-    command = substituteEnvVars(command);
-    args = args.map(arg => substituteEnvVars(arg));
+    command = substituteEnvVars(command, envVars);
+    args = args.map(arg => substituteEnvVars(arg, envVars));
     for (const [key, value] of Object.entries(envVars)) {
-      envVars[key] = substituteEnvVars(value);
+      envVars[key] = substituteEnvVars(value, envVars);
     }
 
     // Write prompt file if needed
@@ -1125,7 +1125,7 @@ export async function processTask(task) {
     const stageLogId = stage.id;
 
     // Agent fallback: if the first choice fails, try alternatives for this stage.
-    const fallbackAgents = ['devin', 'deepseek', 'gemini'];
+    const fallbackAgents = ['devin', 'deepseek', 'gemini', 'copilot'];
     const fallbackOrder = [...new Set([agent, ...fallbackAgents])];
 
     const tried = new Set();

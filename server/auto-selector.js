@@ -190,6 +190,7 @@ export function autoSelectAgentForStage(stageId, task) {
 function buildReasoningText(taskType, complexity, agent, pipeline) {
   const agents = {
     devin: 'Devin (best for complex coding)',
+    copilot: 'GitHub Copilot (terminal-native coding and reasoning)',
     deepseek: 'DeepSeek (fast, good for planning and review)',
   };
 

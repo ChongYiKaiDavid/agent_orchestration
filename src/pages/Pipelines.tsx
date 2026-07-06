@@ -108,7 +108,7 @@ const PipelinesPage: React.FC = () => {
                 return;
               }
 
-              const firstStageAgent = (window.prompt('Agent (devin | gemini | deepseek)', 'devin') || 'devin').trim();
+              const firstStageAgent = (window.prompt('Agent (devin | gemini | deepseek | copilot)', 'devin') || 'devin').trim();
               const firstStageSummary = (window.prompt('Stage summary', 'Describe what this stage does') || '').trim();
               if (!firstStageAgent || !firstStageSummary) {
                 setPipelineCreateError('Please enter an agent and stage summary for the first stage.');
@@ -128,7 +128,7 @@ const PipelinesPage: React.FC = () => {
                 const stageDisplayName = stageName.trim();
                 if (!stageDisplayName) break;
 
-                const agent = (window.prompt('Agent (devin | gemini | deepseek)', 'devin') || 'devin').trim();
+                const agent = (window.prompt('Agent (devin | gemini | deepseek | copilot)', 'devin') || 'devin').trim();
                 const stageSummary = (window.prompt('Stage summary', 'Describe what this stage does') || '').trim();
                 if (!agent || !stageSummary) {
                   break;
@@ -306,7 +306,7 @@ const PipelinesPage: React.FC = () => {
                   const name = stageName.trim();
                   if (!name) return;
 
-                  const agent = (window.prompt('Agent (devin | gemini | deepseek)', 'devin') || 'devin').trim();
+                  const agent = (window.prompt('Agent (devin | gemini | deepseek | copilot)', 'devin') || 'devin').trim();
                   const stageSummary = (window.prompt('Stage summary', 'Describe what this stage does') || '').trim();
                   if (!agent || !stageSummary) return;
 
@@ -455,6 +455,7 @@ const PipelinesPage: React.FC = () => {
                   <option value="devin">Devin</option>
                   <option value="gemini">Gemini</option>
                   <option value="deepseek">DeepSeek</option>
+                  <option value="copilot">Copilot</option>
                 </select>
               </div>
 

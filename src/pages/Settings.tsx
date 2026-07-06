@@ -92,6 +92,15 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    id: 'copilot',
+    label: 'Copilot',
+    fields: [
+      { key: 'COPILOT_GITHUB_TOKEN', label: 'GitHub Token', secret: true },
+      { key: 'COPILOT_REASONING_EFFORT', label: 'Reasoning Effort (low/medium/high)' },
+      { key: 'COPILOT_MODEL', label: 'Model (optional)' },
+    ],
+  },
+  {
     id: 'deepseek',
     label: 'DeepSeek',
     fields: [
@@ -137,6 +146,7 @@ const SettingsPage: React.FC = () => {
     bitbucket: true,
     github: true,
     devin: true,
+    copilot: true,
     deepseek: true,
     flask: true,
     pipelines: true,

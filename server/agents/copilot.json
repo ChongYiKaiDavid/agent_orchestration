@@ -1,0 +1,36 @@
+{
+  "id": "copilot",
+  "label": "Copilot",
+  "description": "GitHub Copilot CLI agent.",
+  "displayName": "GitHub Copilot",
+  "fullDescription": "This agent is responsible for generating and refining code with GitHub Copilot. It reads task and planning context, then produces implementation output for review.",
+  "skills": ["code generation", "refactoring", "reasoning"],
+  "reads": ["task.json", "planner.requirements.md", "planner.design.md"],
+  "writes": ["implementation.diff.md"],
+  "completionToken": "<<<COPILOT_COMPLETE>>>",
+  "cli": {
+    "command": "copilot",
+    "args": [
+      "-p",
+      "{prompt}",
+      "-s",
+      "--no-ask-user",
+      "--allow-all-tools",
+      "--allow-all-paths",
+      "--model=auto",
+      "--reasoning-effort={COPILOT_REASONING_EFFORT}"
+    ],
+    "env": {
+      "COPILOT_GITHUB_TOKEN": "{COPILOT_GITHUB_TOKEN}",
+      "COPILOT_REASONING_EFFORT": "medium"
+    }
+  },
+  "promptTemplate": "You are the Copilot agent, responsible for implementing the requested task with GitHub Copilot.\n\nYour Role:\n- Read the task description from task.json\n- Review the requirements from planner.requirements.md\n- Review the design from planner.design.md\n- Implement the code changes as specified\n\nInputs you will read:\n- task.json: Contains the original task description and context\n- planner.requirements.md: Contains detailed functional requirements\n- planner.design.md: Contains technical design and architecture decisions\n\nOutputs you must produce:\n- Code changes in the repository files as specified in the design\n- implementation.diff.md: A human-readable summary of all changes made\n\nSuccess Criteria:\n- All requirements from planner.requirements.md are implemented\n- Code follows the design specifications in planner.design.md\n- implementation.diff.md clearly lists all files modified with a summary of changes\n- Code is functional, well-structured, and follows best practices\n- Include any assumptions made during implementation\n- List all files changed in the summary\n\nUse the CLI in non-interactive mode to complete your work. After making modifications, write a comprehensive summary to implementation.diff.md.",
+  "agentId": "copilot",
+  "capabilities": {
+    "strengths": ["coding", "refactoring", "bug fixing", "testing", "documentation", "reasoning"],
+    "complexity": "high",
+    "speed": "medium",
+    "bestFor": ["general-purpose coding", "multi-file changes", "complex refactoring", "implementation planning"]
+  }
+}
