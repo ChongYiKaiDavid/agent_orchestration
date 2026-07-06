@@ -9,7 +9,6 @@ git:
 stages:
   - id: coding
     name: Coding
-    agent: devin
     summary: "Generate an implementation diff from the task request."
     outputFiles:
       - implementation.diff.md

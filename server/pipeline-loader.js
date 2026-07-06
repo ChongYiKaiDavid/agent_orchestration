@@ -76,13 +76,17 @@ function validatePipeline(config) {
     if (!stage.name || typeof stage.name !== 'string') {
       throw new Error('Stage must have a name');
     }
+
+    // Some YAML pipelines in this repo may omit stage.agent
+    // Default to devin so YAML pipelines still load
     if (!stage.agent || typeof stage.agent !== 'string') {
-      throw new Error('Stage must have an agent');
+      stage.agent = 'devin';
     }
+
     if (!stage.summary || typeof stage.summary !== 'string') {
       throw new Error('Stage must have a summary');
     }
-    
+
     // CLI configuration is optional - will be loaded from agent JSON if not provided
     if (stage.cli) {
       if (!stage.cli.command || typeof stage.cli.command !== 'string') {

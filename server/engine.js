@@ -1045,8 +1045,11 @@ export async function processTask(task) {
     const stageId = `${executionId}-${stage.id}`;
     const stageFolder = await ensureWorkspace(task.id, stage.id);
 
-    // Auto-select agent for this stage based on task characteristics
-    const selectedAgent = autoSelectAgentForStage(stage.id, task);
+    // Use a single agent for the entire pipeline
+    const fixedAgentId = (process.env.PIPELINE_AGENT_ID || '').trim();
+    
+    // If PIPELINE_AGENT_ID is not set, default to devin
+    const selectedAgent = fixedAgentId ? fixedAgentId : 'devin';
     const agent = selectedAgent;
 
     console.log(`[processTask] Stage '${stage.id}' auto-selected agent: ${selectedAgent}`);

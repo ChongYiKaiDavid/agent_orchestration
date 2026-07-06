@@ -51,8 +51,14 @@ const SECTIONS: Section[] = [
     fields: [
       { key: 'CLI_EXECUTABLE', label: 'CLI Executable' },
       { key: 'MODEL', label: 'Model (optional)' },
+      {
+        key: 'PIPELINE_AGENT_ID',
+        label: 'Pipeline agent',
+        readonly: false,
+      },
     ],
   },
+
   {
     id: 'jira',
     label: 'Jira',
@@ -152,12 +158,15 @@ const SettingsPage: React.FC = () => {
     pipelines: true,
     ports: true,
   });
+
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([fetchConfig(), fetchPipelines()])
       .then(([configData, pipelinesData]) => {
+        // Expose to other pages (simple cross-page state). Pipeline creation should use this value.
+        (window as any).__PIPELINE_AGENT_ID__ = configData.PIPELINE_AGENT_ID || 'devin';
         const enhancedConfig = { ...configData };
 
         // Build full URLs from port/config values with fallbacks
@@ -268,15 +277,29 @@ const SettingsPage: React.FC = () => {
                           </button>
                         </div>
                       ) : (
-                        <input
-                          type={field.secret ? 'password' : 'text'}
-                          className="settings-input"
-                          value={config[field.key] || ''}
-                          onChange={e => set(field.key, e.target.value)}
-                          placeholder={field.key}
-                          disabled={field.readonly}
-                          readOnly={field.readonly}
-                        />
+                        field.key === 'PIPELINE_AGENT_ID' ? (
+                          <select
+                            className="settings-input"
+                            value={config[field.key] || 'devin'}
+                            onChange={e => set(field.key, e.target.value)}
+                            disabled={field.readonly}
+                          >
+                            <option value="devin">devin</option>
+                            <option value="gemini">gemini</option>
+                            <option value="deepseek">deepseek</option>
+                            <option value="copilot">copilot</option>
+                          </select>
+                        ) : (
+                          <input
+                            type={field.secret ? 'password' : 'text'}
+                            className="settings-input"
+                            value={config[field.key] || ''}
+                            onChange={e => set(field.key, e.target.value)}
+                            placeholder={field.key}
+                            disabled={field.readonly}
+                            readOnly={field.readonly}
+                          />
+                        )
                       )}
                     </div>
                   ))

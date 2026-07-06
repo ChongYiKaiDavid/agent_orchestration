@@ -134,13 +134,16 @@ async function initializePipelines() {
   }
 
   const yamlPipelines = await loadYamlPipelines();
-  if (yamlPipelines) {
+
+  // Show YAML pipelines that exist in server/pipelines
+  if (yamlPipelines && Array.isArray(yamlPipelines) && yamlPipelines.length > 0) {
     cachedPipelines = yamlPipelines;
     loadedFromYaml = true;
-  } else {
-    cachedPipelines = fallbackPipelines;
-    loadedFromYaml = false;
+    return cachedPipelines;
   }
+
+  cachedPipelines = fallbackPipelines;
+  loadedFromYaml = false;
   return cachedPipelines;
 }
 

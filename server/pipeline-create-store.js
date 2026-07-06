@@ -36,8 +36,16 @@ export function createPipelineDefinition({ pipeline }) {
     throw new Error(`Pipeline YAML already exists: ${pipeline.id}.yaml`);
   }
 
-  // Keep YAML deterministic-ish
-  const yamlText = yaml.dump(pipeline, { lineWidth: -1, noRefs: true });
+  // Stage.agent is required for backend validation + execution selection
+  const sanitized = {
+    ...pipeline,
+    stages: pipeline.stages.map((s) => {
+      const { agent, ...rest } = s;
+      return rest;
+    }),
+  };
+
+  const yamlText = yaml.dump(sanitized, { lineWidth: -1, noRefs: true });
   fs.writeFileSync(yamlPath, yamlText, 'utf8');
 
   // Ensure caches are invalidated so list endpoint picks it up

@@ -175,7 +175,18 @@ export function applyOverridesToYaml(pipelineId, effectivePipeline) {
   if (!yamlPath) throw new Error(`No YAML file found for pipeline id '${pipelineId}' in server/pipelines`);
 
   validatePipeline(effectivePipeline);
-  const yamlText = yaml.dump(effectivePipeline, { lineWidth: -1, noRefs: true });
+
+  // Do not persist stage.agent in YAML
+  // Stage.agent is required for execution, but YAML does not store it
+  const sanitized = {
+    ...effectivePipeline,
+    stages: effectivePipeline.stages.map((s) => {
+      const { agent, ...rest } = s;
+      return rest;
+    }),
+  };
+
+  const yamlText = yaml.dump(sanitized, { lineWidth: -1, noRefs: true });
   fs.writeFileSync(yamlPath, yamlText, 'utf8');
 }
 

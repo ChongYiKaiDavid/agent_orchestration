@@ -108,10 +108,16 @@ const PipelinesPage: React.FC = () => {
                 return;
               }
 
-              const firstStageAgent = (window.prompt('Agent (devin | gemini | deepseek | copilot)', 'devin') || 'devin').trim();
+              // Agent is predefined from Settings (PIPELINE_AGENT_ID). Default: devin.
+              // We read it via window.__... which we set from Settings page after load.
+              const cfgAgentId = (window as any).__PIPELINE_AGENT_ID__;
+              const firstStageAgent = (cfgAgentId ?? 'devin').toString().trim() || 'devin';
+
+              // Backend requires every stage to have an `agent` field for validation
+              // server/engine.js will still use PIPELINE_AGENT_ID.
               const firstStageSummary = (window.prompt('Stage summary', 'Describe what this stage does') || '').trim();
-              if (!firstStageAgent || !firstStageSummary) {
-                setPipelineCreateError('Please enter an agent and stage summary for the first stage.');
+              if (!firstStageSummary) {
+                setPipelineCreateError('Please enter a stage summary for the first stage.');
                 return;
               }
 
@@ -122,26 +128,45 @@ const PipelinesPage: React.FC = () => {
                 summary: firstStageSummary,
               });
 
-              // Additional stages are optional.
+              // Ensure stage agent is present (server expects it for validation)
+              stages = stages.map((s) => ({
+                ...s,
+                agent: (s as any).agent || firstStageAgent,
+              }));
+
+              // Additional stages are optional
+              // Single-agent pipeline: reuse the same agent for all stages
               while (window.confirm('Add another stage to this pipeline?')) {
                 const stageName = window.prompt('Stage name', `Stage ${stages.length + 1}`) || '';
                 const stageDisplayName = stageName.trim();
                 if (!stageDisplayName) break;
 
-                const agent = (window.prompt('Agent (devin | gemini | deepseek | copilot)', 'devin') || 'devin').trim();
                 const stageSummary = (window.prompt('Stage summary', 'Describe what this stage does') || '').trim();
-                if (!agent || !stageSummary) {
+                if (!stageSummary) {
                   break;
                 }
 
                 stages.push({
                   id: `stage-${stages.length + 1}`,
                   name: stageDisplayName,
-                  agent,
+                  agent: firstStageAgent,
                   summary: stageSummary,
                 });
               }
 
+              // Backend requires every stage to have an `agent` field, but YAML preview/save
+              // does not include it. So:
+              // 1) send `stages` WITH agent for backend validation
+              // 2) immediately strip `agent` before returning/storing the YAML template payload.
+              //
+              // Important: backend creates YAML from the exact object we send.
+              // Therefore we must send a validation-only payload, then strip agent before persistence.
+              // In this codepath, we do that by keeping `stages` for validation, but using a
+              // stripped stages copy for the actual template persisted to YAML.
+              // IMPORTANT:
+              // Backend /pipelines/templates validation requires every stage to include `agent`.
+              // We must send stages WITH agent for validation to pass.
+              // Backend persistence logic strips stage.agent from YAML on disk.
               const template = {
                 id: pipelineId,
                 name: pipelineName,
@@ -241,8 +266,11 @@ const PipelinesPage: React.FC = () => {
                   setSelectedStage(0);
                   setLastRunTaskId('');
 
-                  const nextId = filtered[0]?.id;
-                  setSelectedPipeline(nextId ? String(nextId) : '');
+                  // Ensure UI doesn't keep rendering a deleted pipeline.
+                  setSelectedPipeline(filtered[0]?.id ? String(filtered[0].id) : '');
+                  setPipelineYamlLoadError('');
+                  setPipelineYamlSaveError('');
+                  setPipelineYamlSaveStatus('');
                 } catch (err) {
                   // eslint-disable-next-line no-console
                   console.error(err);
@@ -417,46 +445,26 @@ const PipelinesPage: React.FC = () => {
 
               <div className="pipelines-field">
                 <label className="pipelines-label">Agent</label>
-                <select
-                  className="pipelines-select"
-                  value={String(currentStage.agent || '').toLowerCase()}
-                  onChange={async (e) => {
-                    const next = e.target.value;
+                {(() => {
+                  const cfgAgentId = (window as any).__PIPELINE_AGENT_ID__ ?? 'devin';
+                  const agentId = String(cfgAgentId).trim() || 'devin';
+                  const label =
+                    agentId === 'devin'
+                      ? 'Devin'
+                      : agentId === 'gemini'
+                        ? 'Gemini'
+                        : agentId === 'deepseek'
+                          ? 'DeepSeek'
+                          : agentId === 'copilot'
+                            ? 'Copilot'
+                            : agentId;
 
-                    const nextStages = (current?.stages || []).map((s: any, idx: number) => {
-                      if (idx !== selectedStage) return s;
-                      return { ...s, agent: next };
-                    });
-
-                    setPipelines((prev) =>
-                      prev.map((p) => {
-                        if (p.id !== current?.id) return p;
-                        return {
-                          ...p,
-                          stages: nextStages,
-                        };
-                      })
-                    );
-
-                    try {
-                      await updatePipeline(String(current?.id), {
-                        stages: nextStages,
-                        writeToYaml: true,
-                      });
-                      await load();
-                    } catch (err) {
-                      // keep UI optimistic, but surface error
-                  setPipelineYamlLoadError(err instanceof Error ? err.message : String(err));
-                  // eslint-disable-next-line no-console
-                  console.error(err);
-                    }
-                  }}
-                >
-                  <option value="devin">Devin</option>
-                  <option value="gemini">Gemini</option>
-                  <option value="deepseek">DeepSeek</option>
-                  <option value="copilot">Copilot</option>
-                </select>
+                  return (
+                    <div className="pipelines-detail-value" aria-label="agent-readonly">
+                      {label}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Override section (placeholder controls; layout requested by user) */}
