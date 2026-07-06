@@ -29,14 +29,31 @@ const getRepoName = (url: string) => {
 
 export default function PRTracking({ taskId }: { taskId?: string }) {
   const [prs, setPRs] = useState<PullRequest[]>([]);
+
+  const dedupeKey = (pr: PullRequest) => `${pr.execution_id ?? ''}:${pr.pr_number ?? ''}`;
+
   const [loading, setLoading] = useState(true);
 
   const fetchPRs = async () => {
     try {
       const url = taskId ? `/api/tasks/${taskId}/pull-requests` : `/api/pull-requests`;
       const data = await fetch(url).then(r => r.json());
-      setPRs(Array.isArray(data) ? data : []);
-    } catch {}
+      const next = Array.isArray(data) ? data : [];
+      // Best-effort stability: if backend briefly returns empty during transitions,
+      // keep showing the last known PRs so the UI doesn't “blink” away.
+      // Also dedupe by (execution_id + pr_number) because upstream can return duplicates.
+      const deduped = Array.isArray(next)
+        ? next.filter((pr, idx, arr) => {
+            const key = dedupeKey(pr);
+            return idx === arr.findIndex((p) => dedupeKey(p) === key);
+          })
+        : [];
+
+      setPRs((prev) => (deduped.length === 0 ? prev : deduped));
+
+    } catch {
+      // keep previous
+    }
     setLoading(false);
   };
 
@@ -52,7 +69,10 @@ export default function PRTracking({ taskId }: { taskId?: string }) {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div className="td-card-title" style={{ margin: 0 }}>Pull Requests</div>
-        <button onClick={fetchPRs} style={{ background: 'none', border: 'none', color: '#6b9eff', fontSize: 13, cursor: 'pointer' }}>
+        <button
+          onClick={fetchPRs}
+          style={{ background: 'none', border: 'none', color: '#6b9eff', fontSize: 13, cursor: 'pointer' }}
+        >
           Refresh
         </button>
       </div>
@@ -63,37 +83,52 @@ export default function PRTracking({ taskId }: { taskId?: string }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {prs.map((pr) => {
             const s = getStatus(pr.status);
+            // Guard against duplicate PR renders caused by upstream data quirks.
+            // Use execution_id + pr_number as a stable composite key.
             return (
-              <div key={pr.id} style={{
-                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 8, padding: '12px 14px',
-              }}>
+              <div key={`${pr.execution_id ?? ''}:${pr.pr_number}`}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                       <span>{s.icon}</span>
-                      <span style={{
-                        fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
-                        background: s.bg, color: s.color, textTransform: 'uppercase',
-                      }}>{pr.status.replace('_', ' ')}</span>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          background: s.bg,
+                          color: s.color,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        {pr.status.replace('_', ' ')}
+                      </span>
                       <span style={{ fontWeight: 600, color: '#f3f4f6', fontSize: 14 }}>PR #{pr.pr_number}</span>
                     </div>
                     <div style={{ fontSize: 12, color: 'rgba(243,244,246,0.45)', marginBottom: 8 }}>
                       {getRepoName(pr.repo)}
                     </div>
                     {pr.url && (
-                      <a href={pr.url} target="_blank" rel="noopener noreferrer"
+                      <a
+                        href={pr.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         style={{ fontSize: 13, color: '#6b9eff', textDecoration: 'none' }}
-                        onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
-                        onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
+                        onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+                        onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
                       >
                         View on {pr.url.includes('github') ? 'GitHub' : 'Bitbucket'} →
                       </a>
                     )}
                   </div>
+
                   <div style={{ fontSize: 11, color: 'rgba(243,244,246,0.4)', textAlign: 'right', flexShrink: 0 }}>
                     <div>Created: {new Date(pr.created_at).toLocaleDateString()}</div>
-                    {pr.merged_at && <div style={{ color: '#4ade80' }}>Merged: {new Date(pr.merged_at).toLocaleDateString()}</div>}
+                    {pr.merged_at && (
+                      <div style={{ color: '#4ade80' }}>Merged: {new Date(pr.merged_at).toLocaleDateString()}</div>
+                    )}
                   </div>
                 </div>
               </div>

@@ -1632,13 +1632,16 @@ export async function processTask(task) {
           console.error('Git PR operations failed', e);
         }
       }
-      const prId = crypto.randomUUID();
-      const prTitle = task.jira_ticket ? `${task.jira_ticket} ${task.title}` : (task.title || `Agent update: ${prNumber}`);
-      const prDesc = `Created by AI agent orchestration for task: ${task.id}\n\nTask: ${task.title}\nBranch: ${prNumber}`;
-      db.prepare(`
-        INSERT INTO pull_requests (id, execution_id, repo, pr_number, url, status, title, description)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(prId, executionId, task.repository || 'unknown', prNumber, prUrl, 'open', prTitle, prDesc);
+      const existingPr = db.prepare('SELECT id FROM pull_requests WHERE execution_id = ?').get(executionId);
+      if (!existingPr) {
+        const prId = crypto.randomUUID();
+        const prTitle = task.jira_ticket ? `${task.jira_ticket} ${task.title}` : (task.title || `Agent update: ${prNumber}`);
+        const prDesc = `Created by AI agent orchestration for task: ${task.id}\n\nTask: ${task.title}\nBranch: ${prNumber}`;
+        db.prepare(`
+          INSERT INTO pull_requests (id, execution_id, repo, pr_number, url, status, title, description)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(prId, executionId, task.repository || 'unknown', prNumber, prUrl, 'open', prTitle, prDesc);
+      }
       db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run('pr_created', now(), task.id);
       recordActivity({
         taskId: task.id,
@@ -1960,13 +1963,16 @@ async function createPullRequest(task, executionId, repositoryPath, finalVerdict
         console.error('Git PR operations failed', e);
       }
     }
-    const prId = crypto.randomUUID();
-    const prTitle = task.jira_ticket ? `${task.jira_ticket} ${task.title}` : (task.title || `Agent update: ${prNumber}`);
-    const prDesc = `Created by AI agent orchestration for task: ${task.id}\n\nTask: ${task.title}\nBranch: ${prNumber}`;
-    db.prepare(`
-        INSERT INTO pull_requests (id, execution_id, repo, pr_number, url, status, title, description)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(prId, executionId, task.repository || 'unknown', prNumber, prUrl, 'open', prTitle, prDesc);
+    const existingPr2 = db.prepare('SELECT id FROM pull_requests WHERE execution_id = ?').get(executionId);
+    if (!existingPr2) {
+      const prId = crypto.randomUUID();
+      const prTitle = task.jira_ticket ? `${task.jira_ticket} ${task.title}` : (task.title || `Agent update: ${prNumber}`);
+      const prDesc = `Created by AI agent orchestration for task: ${task.id}\n\nTask: ${task.title}\nBranch: ${prNumber}`;
+      db.prepare(`
+          INSERT INTO pull_requests (id, execution_id, repo, pr_number, url, status, title, description)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(prId, executionId, task.repository || 'unknown', prNumber, prUrl, 'open', prTitle, prDesc);
+    }
     db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run('pr_created', now(), task.id);
     recordActivity({
       taskId: task.id,
