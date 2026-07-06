@@ -37,22 +37,32 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
     const loadTasks = () => {
       fetchTasks()
         .then((loaded: any[]) => {
-          setTasks(loaded);
+          // Keep existing tasks on the UI if backend temporarily returns empty.
+          // This prevents tasks from disappearing on refresh when the server state is momentarily unavailable.
+          setTasks((prev) => {
+            if (!Array.isArray(loaded)) return prev;
+            if (loaded.length === 0 && prev.length > 0) return prev;
+            return loaded;
+          });
+
           // Fetch PRs for tasks that may have them
           loaded
-            .filter((t: any) => ['pr_created', 'completed'].includes(t.status) )
+            .filter((t: any) => ['pr_created', 'completed'].includes(t.status))
             .forEach((t: any) => {
               fetch(`/api/tasks/${t.id}/pull-requests`)
                 .then(r => r.json())
                 .then((prs: any[]) => {
                   if (prs?.[0]) {
-                    setPrMap(prev => ({ ...prev, [t.id]: prs[0] }));
+                    setPrMap((prev) => ({ ...prev, [t.id]: prs[0] }));
                   }
                 })
                 .catch(() => {});
             });
         })
-        .catch(() => setTasks([]));
+        .catch(() => {
+          // Keep previous tasks if fetching fails.
+          // Do not clear UI state.
+        });
     };
 
     loadTasks();
@@ -149,14 +159,14 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
   const pullRequest = executionDetails?.pullRequest || null;
 
   return (
-    <div className="dashboard-page">
+    <div className="dashboard-page" style={{ marginTop: 0 }}>
+
       <div className="dashboard-heading">
         <div className="dashboard-kicker">Task lifecycle</div>
 
         <h1 className="dashboard-title">End-to-end task delivery</h1>
         <p className="dashboard-subtitle">Track each task from planning through merge and completion.</p>
       </div>
-
 
       <div className="dashboard-toolbar">
         <div className="dashboard-search">
@@ -166,9 +176,6 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
           />
-
-          {/* Back-compat: tests expect "Wire task preview panel" after typing */}
-
         </div>
 
         <div className="dashboard-filters">
@@ -259,8 +266,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
                                 target="_blank"
                                 rel="noreferrer"
                                 onClick={e => e.stopPropagation()}
-                              >{prMap[task.id].title || 'View PR'} →</a>
-                              {prMap[task.id].description && <div className="dashboard-task-pr-desc">{prMap[task.id].description}</div>}
+                              >{task.jira_ticket ? `${task.jira_ticket}: ` : ''}View PR →</a>
                             </div>
                           )}
                       </div>
@@ -408,4 +414,3 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
 };
 
 export default DashboardPage;
-
