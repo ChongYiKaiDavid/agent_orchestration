@@ -685,10 +685,13 @@ router.get('/jira/issues', async (req, res) => {
     // Debug: log raw description field from first issue to diagnose extraction
     if (data.issues?.length > 0) {
       const sample = data.issues[0];
+    if (process.env.DEBUG_JIRA_ISSUES === 'true') {
       console.log(`[jira/issues] first issue key=${sample.key} description field type=${typeof sample.fields.description}`, 
         sample.fields.description === null ? '(null)' : 
         typeof sample.fields.description === 'object' ? JSON.stringify(sample.fields.description).slice(0, 300) : 
         String(sample.fields.description).slice(0, 300));
+    }
+
     }
     const issues = (data.issues || []).map(issue => ({
       key: issue.key,
