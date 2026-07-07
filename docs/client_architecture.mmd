@@ -1,0 +1,84 @@
+flowchart TB
+    %% ─── User ────────────────────────────────────────────────────────────────
+    User(["User\n(Browser)"])
+
+    %% ─── React Frontend (Port 5173) ──────────────────────────────────────────
+    subgraph Frontend["React Frontend — Vite Dev Server :5173"]
+        direction TB
+
+        subgraph Layout["Layout Shell"]
+            Header["Header.tsx\n(title, nav toggle)"]
+            Sidebar["Sidebar.tsx\n(nav links, notification badge)"]
+            LayoutComp["Layout.tsx\n(wraps all pages)"]
+        end
+
+        subgraph Pages["Pages (React Router)"]
+            Dashboard["Dashboard.tsx\n• Task kanban board\n• Jira issues panel\n• PR links per task"]
+            CreateTask["CreateTask.tsx\n• Title / description\n• Repo, pipeline, branch\n• Jira ticket field"]
+            TaskDetails["TaskDetails.tsx\n• Pipeline visualiser\n• Stage status cards\n• PR tracking panel\n• Test results\n• Terminal log viewer"]
+            Agents["Agents.tsx\n• Agent list & config"]
+            Pipelines["Pipelines.tsx\n• Pipeline YAML editor\n• Stage builder"]
+            Activity["Activity.tsx\n• Activity log feed"]
+            Decompose["Decompose.tsx\n• Epic decomposition"]
+            Settings["Settings.tsx\n• Env config form"]
+        end
+
+        subgraph Components["Shared Components"]
+            PipelineViz["PipelineVisualization.tsx\n(stage progress bars)"]
+            PRTracking["PRTracking.tsx\n(PR cards, status badges)"]
+            TestResults["TestResults.tsx\n(pass/fail counts)"]
+            Notifications["Notifications.tsx\n(toast + sidebar list)"]
+            Terminal["Terminal.tsx\n(Socket.IO log stream)"]
+        end
+
+        APIClient["api.ts\n(fetch wrappers for all REST calls)"]
+        SocketClient["Socket.IO Client\n(real-time log & notifications)"]
+    end
+
+    %% ─── Backend API (Port 5174) ─────────────────────────────────────────────
+    subgraph Backend["Node.js Express API — :5174"]
+        REST["REST API\n/api/tasks\n/api/executions\n/api/pipelines\n/api/agents\n/api/pull-requests\n/api/jira/issues\n/api/notifications\n/api/config"]
+    end
+
+    %% ─── Flask Socket.IO (Port 5002) ─────────────────────────────────────────
+    subgraph Flask["Flask Socket.IO Server — :5002"]
+        SocketServer["Socket.IO Server\n(log chunk events)\n(pipeline_update events)"]
+    end
+
+    %% ─── Connections ─────────────────────────────────────────────────────────
+    User --> Frontend
+
+    Header --> LayoutComp
+    Sidebar --> LayoutComp
+    LayoutComp --> Pages
+
+    Dashboard --> PipelineViz
+    TaskDetails --> PipelineViz
+    TaskDetails --> PRTracking
+    TaskDetails --> TestResults
+    TaskDetails --> Terminal
+
+    Sidebar --> Notifications
+
+    Pages --> APIClient
+    Components --> APIClient
+    APIClient -->|"HTTP REST\n(JSON)"| REST
+
+    Terminal --> SocketClient
+    Notifications --> SocketClient
+    SocketClient -->|"WebSocket\nws://localhost:5002"| SocketServer
+
+    %% ─── Data flow annotations ───────────────────────────────────────────────
+    classDef page fill:#1e3a5f,stroke:#6b9eff,color:#e2e8f0
+    classDef component fill:#1a3a2a,stroke:#4ade80,color:#e2e8f0
+    classDef client fill:#2d1f3d,stroke:#a78bfa,color:#e2e8f0
+    classDef server fill:#3d2a1a,stroke:#fbbf24,color:#e2e8f0
+    classDef layout fill:#1f2937,stroke:#94a3b8,color:#e2e8f0
+    classDef user fill:#374151,stroke:#9ca3af,color:#f9fafb
+
+    class Dashboard,CreateTask,TaskDetails,Agents,Pipelines,Activity,Decompose,Settings page
+    class PipelineViz,PRTracking,TestResults,Notifications,Terminal component
+    class APIClient,SocketClient client
+    class REST,SocketServer server
+    class Header,Sidebar,LayoutComp layout
+    class User user

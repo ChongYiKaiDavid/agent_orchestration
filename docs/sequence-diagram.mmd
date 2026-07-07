@@ -1,66 +1,172 @@
 sequenceDiagram
-    participant User as User (React UI)
-    participant API as Flask API
-    participant Queue as Work Queue
-    participant Worker as Worker Thread
-    participant Executor as Pipeline Executor
-    participant Runner as Agent Runner
-    participant Agent as Devin Agent
+    autonumber
 
-    User->>API: 1. Create Task
-    API->>API: 2. Create task.md + insert into queue
-    API->>Queue: Insert task
-    Queue->>Worker: 3. Background worker polls queue
-    Worker->>Worker: 4. Claim task (queued → claimed)
-    Worker->>Executor: 5. Load pipeline.yaml<br/>Auto-select agent
+    participant User   as Developer (Browser)
+    participant FE     as React Frontend :5173
+    participant API    as Express API :5174
+    participant DB     as SQLite DB
+    participant Flask  as Flask Socket.IO :5002
+    participant Worker as Background Worker
+    participant Engine as Pipeline Engine
+    participant AutoSel as Auto-Selector
+    participant Agent  as AI Agent<br/>(DeepSeek/Devin/Gemini/Copilot)
+    participant Git    as Git Provider<br/>(GitHub / Bitbucket)
+    participant Jira   as Jira API
 
-    Note over Executor,Agent: STAGE 1: PLANNER
-    Executor->>Runner: 6. Call agent_runner (planner)
-    Runner->>Runner: 7. Load skills/planner/agent.yaml
-    Runner->>Runner: 8. Build prompt + read files
-    Runner->>Agent: 9. Execute agent
-    Agent->>Agent: Reads: task.md
-    Agent->>Agent: Writes: planner.requirements.md<br/>planner.design.md
-    Agent->>Agent: Prints: <<<PLANNER_COMPLETE>>>
-    Agent-->>Runner: Completion token
-    Runner->>Runner: 10. Detect completion token<br/>Create .done file<br/>Kill process
-    Runner-->>Executor: Stage complete
-    Executor->>Executor: 11. Move to next stage
+    %% ══════════════════════════════════════════════════════════════
+    Note over User,Jira: ① TASK CREATION
+    %% ══════════════════════════════════════════════════════════════
 
-    Note over Executor,Agent: STAGE 2: CODER
-    Executor->>Runner: 12. Call agent_runner (coder)
-    Runner->>Runner: 13. Load skills/coder/agent.yaml
-    Runner->>Runner: 14. Build prompt (includes planner outputs)
-    Runner->>Agent: 15. Execute agent
-    Agent->>Agent: Reads: task.md, planner docs
-    Agent->>Agent: Writes: source code files
-    Agent->>Agent: Prints: <<<CODER_COMPLETE>>>
-    Agent-->>Runner: Completion token
-    Runner->>Runner: 16. Detect completion<br/>.done → kill process
-    Runner-->>Executor: Stage complete
-    Executor->>Executor: 17. Post-stage: generate coder.diff
+    User->>FE: Fill CreateTask form\n(title, desc, repo, pipeline, Jira ticket)
+    FE->>API: POST /api/tasks
+    API->>DB: INSERT tasks (status=queued)
+    API->>DB: INSERT executions (status=pending)
+    API->>DB: INSERT notifications (type=task_created)
+    API-->>FE: 201 { task }
+    FE-->>User: Task card appears on Dashboard
 
-    Note over Executor,Agent: STAGE 3: REVIEWER
-    Executor->>Runner: 18. Call agent_runner (reviewer)
-    Runner->>Runner: 19. Load skills/reviewer/agent.yaml
-    Runner->>Agent: 20. Execute agent
-    Agent->>Agent: Reads: task.md, planner docs, coder.diff
-    Agent->>Agent: Writes: reviewer.review.md
-    Agent->>Agent: Prints: <<<REVIEWER_COMPLETE>>>
-    Agent-->>Runner: Completion token
-    Runner-->>Executor: Stage complete
-    Executor->>Executor: 22. Extract verdict from reviewer.review.md
+    opt Load Jira Issues
+        FE->>API: GET /api/jira/issues
+        API->>Jira: GET /rest/api/3/search/jql\n(project=KAN, statusCategory=new,indeterminate)
+        Jira-->>API: issues[]
+        API-->>FE: issues[] (ADF → plain text extracted)
+        FE-->>User: Jira panel populated
+        User->>FE: Click "Send to agent"
+        FE->>API: POST /api/tasks/from-jira
+        API->>DB: INSERT tasks (jira_ticket, priority, repo from mapping)
+        API-->>FE: 201 { task }
+    end
 
-    Note over Executor: VERDICT-BASED ROUTING
-    par GO
-        Executor->>Executor: 23. Run hooks<br/>- git commit<br/>- git push<br/>- create PR
-        Executor->>Executor: Task → done
-    and FAIL
-        Executor->>Executor: 24. Route back → CODER<br/>Retry coding stage
-        Executor->>Executor: Requeued (retry from coding)
-    and SPEC_FAIL
-        Executor->>Executor: 25. Route back → PLANNER<br/>Retry planning stage
-        Executor->>Executor: Requeued (retry from planning)
-    and ESCALATE
-        Executor->>Executor: 26. Pause task for human<br/>Status → escalated
+    %% ══════════════════════════════════════════════════════════════
+    Note over Worker,Engine: ② WORKER CLAIMS TASK
+    %% ══════════════════════════════════════════════════════════════
+
+    loop Every 1 second
+        Worker->>DB: SELECT tasks WHERE status=queued LIMIT 1
+        DB-->>Worker: task | null
+    end
+
+    Worker->>DB: UPDATE tasks SET status=running
+    Worker->>DB: INSERT activity_log (event=task_claimed)
+    Worker->>Engine: processTask(task)
+    Worker-->>User: Spawn native terminal window\n(tails worker.log in real-time)
+
+    %% ══════════════════════════════════════════════════════════════
+    Note over Engine,AutoSel: ③ PIPELINE & AGENT SELECTION
+    %% ══════════════════════════════════════════════════════════════
+
+    Engine->>AutoSel: autoSelectAgentForStage(stageId, task)
+    AutoSel->>AutoSel: analyzeTaskComplexity(title, desc)
+    AutoSel->>AutoSel: analyzeTaskType(title, desc)
+    AutoSel->>AutoSel: scoreAgentCapabilities(type, complexity)
+    AutoSel-->>Engine: preferredAgent (e.g. deepseek)
+
+    Engine->>Engine: buildFallbackOrder\n[preferredAgent, devin, deepseek, gemini, copilot]
+    Engine->>Engine: mkdir workspaces/{task_id}/{stage_id}/
+
+    %% ══════════════════════════════════════════════════════════════
+    Note over Engine,Flask: ④ STAGE EXECUTION WITH FALLBACK
+    %% ══════════════════════════════════════════════════════════════
+
+    loop For each Stage (planning → coding → reviewing)
+        Engine->>DB: INSERT stage_executions (status=running)
+
+        loop Agent fallback chain
+            Engine->>Agent: spawn CLI / call API\n(prompt, workspace, model)
+            Agent->>Agent: Read task context\nGenerate output files
+            Agent-->>Engine: stdout chunks (real-time)
+            Engine->>Flask: POST /stream\n(task_id, stage_id, chunk)
+            Flask-->>FE: Socket.IO emit log_chunk
+            FE-->>User: Live log updates in Terminal.tsx
+
+            alt Agent succeeds (exitCode=0 OR completion token found)
+                Agent-->>Engine: <<<PLANNER/CODER/REVIEWER_COMPLETE>>>
+                Engine->>Engine: Break fallback loop
+            else Agent fails (exitCode≠0, HTTP 402, upgrade error)
+                Engine->>Engine: Log failure, try next agent in chain
+            end
+        end
+
+        Engine->>DB: UPDATE stage_executions\n(status=completed, verdict, output_data)
+        Engine->>DB: INSERT artifacts (file_path per outputFile)
+    end
+
+    %% ══════════════════════════════════════════════════════════════
+    Note over Engine: ⑤ VERDICT-BASED ROUTING
+    %% ══════════════════════════════════════════════════════════════
+
+    Engine->>Engine: Extract verdict from reviewer.review.md
+
+    alt VERDICT: GO
+        Note over Engine,Git: ⑥ GIT OPERATIONS & PR CREATION
+        Engine->>Git: git clone repo → workspaces/{id}/repo/
+        Engine->>Git: git checkout -b feature/{task_id}
+        Engine->>Engine: Apply agent file output to repo
+        Engine->>Git: git commit -m "{jira_ticket} {title}"
+        Engine->>Git: git push origin feature/{task_id}
+        Engine->>Git: POST /repos/.../pulls (or Bitbucket equivalent)
+        Git-->>Engine: { pr_number, pr_url }
+
+        Engine->>DB: INSERT pull_requests\n(only if no existing row for execution_id)
+        Engine->>DB: UPDATE tasks SET status=pr_created
+        Engine->>DB: INSERT notifications (type=pr_created)
+        Engine->>DB: INSERT notifications (type=task_completed)
+        Engine->>DB: INSERT activity_log (event=pipeline_complete)
+
+    else VERDICT: FAIL
+        Engine->>DB: UPDATE stage_executions (retry coding)
+        Engine->>Engine: Re-run coding stage\n(with reviewer feedback as context)
+
+    else VERDICT: SPEC_FAIL
+        Engine->>DB: UPDATE stage_executions (retry planning)
+        Engine->>Engine: Re-run planning stage\n(full replanning)
+
+    else VERDICT: ESCALATE
+        Engine->>DB: UPDATE tasks SET status=escalated
+        Engine->>DB: INSERT activity_log (event=escalated)
+        Engine->>DB: INSERT notifications (type=task_failed)
+    end
+
+    %% ══════════════════════════════════════════════════════════════
+    Note over FE,DB: ⑦ REAL-TIME UI UPDATES
+    %% ══════════════════════════════════════════════════════════════
+
+    loop Every 3 seconds (Dashboard) / 30 seconds (PRTracking)
+        FE->>API: GET /api/tasks
+        API->>DB: SELECT tasks ORDER BY updated_at DESC
+        DB-->>API: tasks[]
+        API-->>FE: tasks[]
+        FE-->>User: Kanban board refreshed
+
+        FE->>API: GET /api/tasks/{id}/pull-requests
+        API->>DB: SELECT pull_requests WHERE execution_id=...
+        DB-->>API: prs[] (deduped by execution_id+pr_number)
+        API-->>FE: prs[]
+        FE-->>User: PR cards updated in TaskDetails
+    end
+
+    FE->>API: GET /api/notifications
+    API->>DB: SELECT notifications WHERE read=0
+    DB-->>API: notifications[]
+    API-->>FE: notifications[]
+    FE-->>User: Badge count + toast shown
+
+    %% ══════════════════════════════════════════════════════════════
+    Note over Worker,DB: ⑧ PR STATUS POLLING & ORPHAN RECOVERY
+    %% ══════════════════════════════════════════════════════════════
+
+    loop Every 5 minutes (PR Poller)
+        Worker->>DB: SELECT pull_requests WHERE status=open
+        Worker->>Git: GET PR status (GitHub/Bitbucket API)
+        Git-->>Worker: { state: merged | open | closed }
+        Worker->>DB: UPDATE pull_requests (status, merged_at)
+        opt PR merged
+            Worker->>DB: UPDATE tasks SET status=completed
+        end
+    end
+
+    loop Orphan Recovery Watchdog
+        Worker->>DB: SELECT tasks WHERE status=running\nAND last_heartbeat < now()-5min
+        Worker->>DB: UPDATE orphaned tasks SET status=queued\n(re-queue for retry)
+        Worker->>DB: INSERT activity_log (event=orphan_recovered)
     end
