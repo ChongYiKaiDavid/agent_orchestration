@@ -110,7 +110,7 @@ export async function runGeminiStage({ prompt, stageId, workspace, onStdout, onS
   // - GEMINI_API_KEY (or GOOGLE_API_KEY as fallback)
   // - GEMINI_MODEL (optional)
 
-  await writePromptFile(workspace, prompt);
+  const promptFile = await writePromptFile(workspace, prompt);
   const command = await getGeminiCommand();
 
   const repoPath = path.join(path.dirname(workspace), 'repo');
@@ -121,7 +121,7 @@ export async function runGeminiStage({ prompt, stageId, workspace, onStdout, onS
   // -y/--yolo auto-approves all tool actions so the process doesn't block.
   const args = [
     '--model', model,
-    '-p', prompt,
+    '-p', `@${promptFile}`,
     '-y',
     '--skip-trust',
   ];
@@ -144,7 +144,7 @@ export async function runGeminiStage({ prompt, stageId, workspace, onStdout, onS
 
     const timeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '', 10) || 5 * 60 * 1000; // default 5 min
 
-    const child = spawn(command, args, { cwd: workspace, env, shell: process.platform === 'win32' });
+    const child = spawn(command, args, { cwd: workspace, env });
 
     const timeoutHandle = setTimeout(() => {
       if (settled) return;
