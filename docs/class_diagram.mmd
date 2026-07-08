@@ -1,0 +1,213 @@
+classDiagram
+    %% ─── Database Entities ───────────────────────────────────────────────────
+
+    class Task {
+        +String id
+        +String title
+        +String description
+        +String status
+        +String priority
+        +String repository
+        +String target_branch
+        +String pipeline_id
+        +String jira_ticket
+        +String auto_branch
+        +int retry_count
+        +int max_retries
+        +String post_complete_status
+        +String created_at
+        +String updated_at
+    }
+
+    class Execution {
+        +String id
+        +String task_id
+        +String pipeline_id
+        +String status
+        +String started_at
+        +String completed_at
+    }
+
+    class StageExecution {
+        +String id
+        +String execution_id
+        +String stage_name
+        +String status
+        +String verdict
+        +String input_data
+        +String output_data
+        +String logs
+        +int retry_count
+        +String started_at
+        +String completed_at
+    }
+
+    class Artifact {
+        +String id
+        +String execution_id
+        +String type
+        +String file_path
+        +String metadata
+        +String created_at
+    }
+
+    class PullRequest {
+        +String id
+        +String execution_id
+        +String repo
+        +String pr_number
+        +String url
+        +String title
+        +String description
+        +String status
+        +String created_at
+        +String merged_at
+    }
+
+    class ActivityLog {
+        +String id
+        +String task_id
+        +String event_type
+        +String message
+        +String details
+        +String created_at
+    }
+
+    class Notification {
+        +String id
+        +String user_id
+        +String task_id
+        +String type
+        +String title
+        +String message
+        +String data
+        +int read
+        +String created_at
+    }
+
+    %% ─── Server Modules ──────────────────────────────────────────────────────
+
+    class Engine {
+        +createTask(opts) Task
+        +claimQueuedTask() Task
+        +processTask(task) void
+        +getAutoSelection(task) Selection
+        +getPipelineDefinitions() Pipeline[]
+        +getAgentDefinitions() Agent[]
+        +runTests(taskId, repoPath) TestResult
+        +detectTestFramework(repoPath) String
+    }
+
+    class AutoSelector {
+        +autoSelectPipelineAndAgent(task) Selection
+        +autoSelectAgentForStage(stageId, task) String
+        +listAgents() Agent[]
+        +getAgentCapabilities(agentId) Capabilities
+        -analyzeTaskComplexity(title, desc) String
+        -analyzeTaskType(title, desc) String
+        -selectBestAgent(taskType, complexity) String
+        -selectBestPipeline(taskType, complexity) String
+    }
+
+    class Worker {
+        +runWorker() void
+        -claimAndProcess() void
+        -spawnTerminalWindow(taskId) void
+    }
+
+    class PipelineLoader {
+        +loadPipelines() Pipeline[]
+        +getPipelineById(id) Pipeline
+        +invalidatePipelinesCache() void
+    }
+
+    class PRPoller {
+        +startPRPolling() Interval
+        +stopPRPolling() void
+        +pollAllPRs() void
+        +getPRPollingStats() Stats
+        -getGitHubPRStatus(owner, repo, number, token) Status
+        -getBitbucketPRStatus(ws, repo, number, token, user) Status
+    }
+
+    class OrphanRecovery {
+        +startOrphanRecoveryWatchdog() Interval
+        +recoverOrphanedTasks() Result
+        +recordHeartbeat() void
+        +getOrphanRecoveryStats() Stats
+    }
+
+    class FlaskSocketServer {
+        +stream_log(task_id, stage_id, stream, chunk) void
+        +connect() void
+        +disconnect() void
+    }
+
+    %% ─── Agent Runners ───────────────────────────────────────────────────────
+
+    class DevinAgent {
+        +runDevinStage(opts) StageResult
+        +buildStagePrompt(stage, task, artifacts, repoPath) String
+        -waitForCompletionToken(stdout) bool
+    }
+
+    class DeepSeekAgent {
+        +runDeepSeekStage(opts) StageResult
+        +buildStagePrompt(stage, task, artifacts, repoPath) String
+        -callDeepSeekAPI(prompt, model) String
+    }
+
+    class GeminiAgent {
+        +runGeminiStage(opts) StageResult
+        +buildStagePrompt(stage, task, artifacts, repoPath) String
+        -getGeminiCommand() String
+        -writeFilesFromOutput(output, repoPath) String[]
+        -parseFileBlocks(output) Files
+    }
+
+    class CopilotAgent {
+        +runGenericCLIStage(opts) StageResult
+    }
+
+    %% ─── Pipeline Definition ─────────────────────────────────────────────────
+
+    class Pipeline {
+        +String id
+        +String name
+        +String description
+        +GitConfig git
+        +Stage[] stages
+        +Hook[] on_complete
+        +int max_retries
+    }
+
+    class Stage {
+        +String id
+        +String name
+        +String summary
+        +String[] outputFiles
+        +CLIConfig cli
+    }
+
+    %% ─── Relationships ───────────────────────────────────────────────────────
+
+    Task "1" --> "0..*" Execution : has
+    Execution "1" --> "0..*" StageExecution : contains
+    Execution "1" --> "0..*" Artifact : produces
+    Execution "1" --> "0..1" PullRequest : creates
+    Task "1" --> "0..*" ActivityLog : logs
+    Task "1" --> "0..*" Notification : triggers
+
+    Engine --> AutoSelector : uses
+    Engine --> PipelineLoader : loads pipelines via
+    Engine --> DevinAgent : delegates to
+    Engine --> DeepSeekAgent : delegates to
+    Engine --> GeminiAgent : delegates to
+    Engine --> CopilotAgent : delegates to
+    Engine --> PRPoller : triggers
+    Engine --> FlaskSocketServer : streams logs to
+
+    Worker --> Engine : calls processTask
+    Worker --> OrphanRecovery : heartbeats via
+
+    Pipeline "1" --> "1..*" Stage : defines

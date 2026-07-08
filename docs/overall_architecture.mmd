@@ -1,0 +1,95 @@
+flowchart LR
+    %% ─── External Actors ─────────────────────────────────────────────────────
+    User(["Developer"])
+    GitHub(["GitHub\nREST API"])
+    Bitbucket(["Bitbucket\nREST API"])
+    Jira(["Jira\nREST API v3"])
+
+    %% ─── Process 1: React Frontend ───────────────────────────────────────────
+    subgraph FE["① React Frontend  :5173"]
+        direction TB
+        Pages["Pages\nDashboard · CreateTask\nTaskDetails · Pipelines\nAgents · Activity · Settings"]
+        UI_WS["Socket.IO Client\n(live logs & notifications)"]
+    end
+
+    %% ─── Process 2: Node.js API ──────────────────────────────────────────────
+    subgraph API["② Node.js Express API  :5174"]
+        direction TB
+        Routes["REST Routes\n/api/tasks  /api/executions\n/api/pipelines  /api/agents\n/api/pull-requests\n/api/notifications\n/api/jira/issues  /api/config"]
+        DB[("SQLite DB\ndb.sqlite\n─────────\ntasks\nexecutions\nstage_executions\nartifacts\npull_requests\nactivity_log\nnotifications")]
+    end
+
+    %% ─── Process 3: Background Worker ────────────────────────────────────────
+    subgraph WRK["③ Background Worker"]
+        direction TB
+        Worker["Worker Loop\n(polls every 1 s)"]
+        Engine["Pipeline Engine\n• Load pipeline YAML\n• Auto-select agent\n• Run stages in order\n• Evaluate verdicts\n• Git ops + PR creation"]
+        subgraph Agents["Agent Fallback Chain"]
+            direction LR
+            Deepseek["DeepSeek\nAPI"]
+            Devin["Devin\nCLI"]
+            Gemini["Gemini\nCLI"]
+            Copilot["Copilot\nCLI"]
+        end
+        AutoSel["Auto-Selector\n(complexity + type scoring)"]
+        PRPoller["PR Poller\n(every 5 min)"]
+        Orphan["Orphan Recovery\nWatchdog"]
+    end
+
+    %% ─── Process 4: Flask Socket.IO ─────────────────────────────────────────
+    subgraph Flask["④ Flask Socket.IO  :5002"]
+        SocketSrv["Socket.IO Server\n• log_chunk events\n• pipeline_update events\n• PTY session support"]
+    end
+
+    %% ─── Filesystem ──────────────────────────────────────────────────────────
+    subgraph FS["Filesystem"]
+        Workspace["server/workspaces/\n{task_id}/\n  prompt.txt\n  planner.requirements.md\n  planner.design.md\n  implementation.diff.md\n  reviewer.review.md\n  worker.log"]
+        PipelineYAML["server/pipelines/\n  plan-code-review.yaml\n  code-only.yaml"]
+        AgentJSON["server/agents/\n  devin.json\n  deepseek.json\n  gemini.json\n  copilot.json"]
+    end
+
+    %% ─── Connections ─────────────────────────────────────────────────────────
+    User -->|"HTTP :5173"| FE
+    Pages -->|"REST HTTP :5174"| Routes
+    UI_WS -->|"WebSocket :5002"| SocketSrv
+
+    Routes <-->|"read/write"| DB
+    Worker -->|"claim + update tasks"| DB
+    Engine -->|"write stage_executions\nartifacts, pull_requests"| DB
+    PRPoller -->|"update pull_requests"| DB
+
+    Worker --> Engine
+    Engine --> AutoSel
+    AutoSel -->|"pick agent"| Agents
+    Deepseek -->|"HTTP API"| Engine
+    Devin -->|"CLI subprocess"| Engine
+    Gemini -->|"CLI subprocess"| Engine
+    Copilot -->|"CLI subprocess"| Engine
+
+    Engine -->|"stream stdout/stderr"| SocketSrv
+    Engine <-->|"read/write artifacts"| Workspace
+    Engine -->|"read pipeline def"| PipelineYAML
+    AutoSel -->|"read capabilities"| AgentJSON
+
+    Engine -->|"git push + create PR"| GitHub
+    Engine -->|"git push + create PR"| Bitbucket
+    PRPoller -->|"poll PR status"| GitHub
+    PRPoller -->|"poll PR status"| Bitbucket
+    Routes -->|"fetch issues"| Jira
+
+    %% ─── Styling ─────────────────────────────────────────────────────────────
+    classDef frontend fill:#1e3a5f,stroke:#6b9eff,color:#e2e8f0
+    classDef backend fill:#3d2a1a,stroke:#fbbf24,color:#e2e8f0
+    classDef worker fill:#1a3a2a,stroke:#4ade80,color:#e2e8f0
+    classDef flask fill:#2d1f3d,stroke:#a78bfa,color:#e2e8f0
+    classDef fs fill:#1f2937,stroke:#94a3b8,color:#e2e8f0
+    classDef external fill:#374151,stroke:#9ca3af,color:#f9fafb
+    classDef agent fill:#3b2a1a,stroke:#fb923c,color:#e2e8f0
+
+    class Pages,UI_WS frontend
+    class Routes,DB backend
+    class Worker,Engine,AutoSel,PRPoller,Orphan worker
+    class Deepseek,Devin,Gemini,Copilot agent
+    class SocketSrv flask
+    class Workspace,PipelineYAML,AgentJSON fs
+    class User,GitHub,Bitbucket,Jira external

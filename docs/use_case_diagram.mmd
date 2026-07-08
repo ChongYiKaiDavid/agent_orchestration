@@ -1,0 +1,110 @@
+flowchart LR
+    %% ─── Actors ──────────────────────────────────────────────────────────────
+    Dev(["Developer"])
+    Admin(["Admin"])
+    Worker(["Background\nWorker"])
+    Agent(["AI Agent\n(Devin/DeepSeek\n/Gemini/Copilot)"])
+    PRReviewer(["PR Reviewer\n(human)"])
+
+    %% ─── Use Cases ───────────────────────────────────────────────────────────
+    subgraph UC["Agent Orchestration System — Use Cases"]
+
+        subgraph TaskMgmt["Task Management"]
+            UC1["Create Task\n(title, desc, repo,\npipeline, Jira ticket)"]
+            UC2["View Task List\n& Kanban Board"]
+            UC3["Search & Filter Tasks"]
+            UC4["Delete Task"]
+            UC5["View Task Details\n& Stage Progress"]
+            UC6["Import Task\nfrom Jira Issue"]
+        end
+
+        subgraph PipelineMgmt["Pipeline & Agent Management"]
+            UC7["View / Edit Pipeline\n(YAML editor)"]
+            UC8["Create Pipeline\n(stages, agents, hooks)"]
+            UC9["Configure Agents\n(model, skills, CLI)"]
+            UC10["View Agent List\n& Capabilities"]
+        end
+
+        subgraph Execution["Task Execution (Automated)"]
+            UC11["Claim & Process Task\nfrom Queue"]
+            UC12["Auto-Select Agent\n& Pipeline"]
+            UC13["Run Planning Stage\n(requirements + design)"]
+            UC14["Run Coding Stage\n(implement changes)"]
+            UC15["Run Reviewing Stage\n(verdict evaluation)"]
+            UC16["Agent Fallback\n(deepseek→devin→gemini→copilot)"]
+        end
+
+        subgraph GitOps["Git & PR Operations"]
+            UC17["Create Feature Branch\n& Commit Changes"]
+            UC18["Push Branch\nto Remote"]
+            UC19["Create Pull Request\n(GitHub / Bitbucket)"]
+            UC20["Poll PR Status\n(auto every 5 min)"]
+            UC21["Track PR\n(view status, links)"]
+        end
+
+        subgraph Observability["Observability & Real-time"]
+            UC22["View Live Agent Logs\n(Socket.IO terminal)"]
+            UC23["Receive Task\nNotifications"]
+            UC24["View Activity Log"]
+            UC25["Recover Orphaned Tasks\n(watchdog)"]
+        end
+
+        subgraph Testing["Test Execution"]
+            UC26["Run Tests\nin Repository"]
+            UC27["View Test Results\n(pass/fail counts)"]
+        end
+
+        subgraph Settings["Settings & Config"]
+            UC28["Configure Env Variables\n(API keys, tokens)"]
+            UC29["Configure Jira\nIntegration"]
+            UC30["Configure Git\nIntegration"]
+        end
+
+    end
+
+    %% ─── Actor → Use Case relationships ─────────────────────────────────────
+    Dev --> UC1
+    Dev --> UC2
+    Dev --> UC3
+    Dev --> UC4
+    Dev --> UC5
+    Dev --> UC6
+    Dev --> UC21
+    Dev --> UC22
+    Dev --> UC23
+    Dev --> UC24
+    Dev --> UC26
+    Dev --> UC27
+
+    Admin --> UC7
+    Admin --> UC8
+    Admin --> UC9
+    Admin --> UC10
+    Admin --> UC25
+    Admin --> UC28
+    Admin --> UC29
+    Admin --> UC30
+
+    Worker --> UC11
+    Worker --> UC12
+    Worker --> UC13
+    Worker --> UC14
+    Worker --> UC15
+    Worker --> UC17
+    Worker --> UC18
+    Worker --> UC19
+    Worker --> UC20
+    Worker --> UC25
+
+    Agent --> UC13
+    Agent --> UC14
+    Agent --> UC15
+    Agent --> UC16
+
+    PRReviewer --> UC21
+
+    %% ─── Styling ─────────────────────────────────────────────────────────────
+    classDef actor fill:#374151,stroke:#9ca3af,color:#f9fafb
+    classDef uc fill:#1e293b,stroke:#475569,color:#e2e8f0
+
+    class Dev,Admin,Worker,Agent,PRReviewer actor
