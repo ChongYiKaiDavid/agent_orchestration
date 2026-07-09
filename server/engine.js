@@ -441,6 +441,11 @@ let _pendingResolves = [];
 let _socketInstanceCount = 0;
 
 function getLogSocket() {
+  // Temporarily disable external log streaming to avoid flaky socket disconnects
+  // which can cause child agents to receive Ctrl+C on Windows. This improves
+  // run stability in environments where the Flask socket server is unreliable.
+  return null;
+
   if (_logSocket) {
     if (_logSocket.connected) return _logSocket;
     // Socket exists but disconnected — try reconnect silently.
@@ -1272,6 +1277,17 @@ export async function processTask(task) {
     // If still no result (should be rare), fail the stage.
     if (!result) {
       result = { exitCode: 1, output: '', logs: 'No agent result produced.' };
+    }
+
+    // If agent wrote a completion marker (.done) in the stage folder, treat as success even if the process exited with a non-zero/abrupt code
+    try {
+      const doneFile = path.join(stageFolder, '.done');
+      if (result && result.exitCode !== 0 && fsSync.existsSync(doneFile)) {
+        console.log(`[processTask] stage ${stage.id}: found .done at ${doneFile}; treating non-zero exit as success.`);
+        result.exitCode = 0;
+      }
+    } catch (e) {
+      // ignore fs errors
     }
 
     console.log(`[processTask] stage ${stage.id} finalized with exitCode=${result.exitCode}`);

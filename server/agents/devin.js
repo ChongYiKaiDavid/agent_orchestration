@@ -124,17 +124,30 @@ export async function runDevinStage({ prompt, stageId, workspace, onStdout, onSt
     const repoPath = path.join(path.dirname(workspace), 'repo');
 
     return new Promise((resolve) => {
-      if (process.platform === 'win32' && command.includes(' ')) {
-        command = `"${command}"`;
+      // Spawn the executable directly without a shell for consistent signal handling on Windows
+      const finalArgs = args;
+      const detachedMode = process.platform === 'win32';
+      const child = spawn(command, finalArgs, { cwd: workspace, env, shell: false, detached: detachedMode });
+      if (child && child.pid) {
+        console.log(`[devin] spawned child pid=${child.pid} cmd=${command} args=${finalArgs.join(' ')} detached=${detachedMode}`);
       }
-      const finalArgs = args.map(arg => (process.platform === 'win32' && arg.includes(' ')) ? `"${arg}"` : arg);
-      const child = spawn(command, finalArgs, { cwd: workspace, env, shell: process.platform === 'win32' });
+      // If detached, unref so parent can exit cleanly without holding stdio
+      if (detachedMode) {
+        try { child.unref(); } catch (e) {}
+      }
+
       child.stdin.write(prompt);
       child.stdin.end();
+
+      // Capture exit reason for diagnostics
+      child.on('exit', (code, signal) => {
+        console.log(`[devin] child exited code=${code} signal=${signal}`);
+      });
 
       let stdout = '';
       let stderr = '';
       let completed = false;
+      let resolved = false;
 
       child.stdout.on('data', (chunk) => {
         const text = chunk.toString();
@@ -147,11 +160,30 @@ export async function runDevinStage({ prompt, stageId, workspace, onStdout, onSt
             if (!completed) {
               completed = true;
               fs.writeFile(path.join(workspace, '.done'), token).catch(() => {});
+
+              // attempt to write files immediately from current output
+              try {
+                const written = writeFilesFromOutput(stdout, repoPath);
+                if (written.length > 0) {
+                  onStdout?.(`\n[WRITTEN ${written.length} files: ${written.join(', ')}]\n`);
+                }
+              } catch {}
+
+              if (!resolved) {
+                resolved = true;
+                resolve({
+                  exitCode: 0,
+                  output: stdout.trim(),
+                  logs: stderr.trim(),
+                });
+              }
+
+              // give child time to exit, then try to kill gracefully if still alive
               setTimeout(() => {
                 try {
-                  child.kill('SIGTERM');
+                  if (!child.killed) child.kill();
                 } catch (e) {}
-              }, 500);
+              }, 5000);
             }
           }
         }
@@ -164,6 +196,7 @@ export async function runDevinStage({ prompt, stageId, workspace, onStdout, onSt
       });
 
       child.on('close', (code) => {
+        if (resolved) return;
         const output = stdout.trim();
         try {
           const written = writeFilesFromOutput(output, repoPath);
@@ -171,7 +204,7 @@ export async function runDevinStage({ prompt, stageId, workspace, onStdout, onSt
             onStdout?.(`\n[WRITTEN ${written.length} files: ${written.join(', ')}]\n`);
           }
         } catch {}
-
+        resolved = true;
         resolve({
           exitCode: code,
           output,
@@ -180,6 +213,8 @@ export async function runDevinStage({ prompt, stageId, workspace, onStdout, onSt
       });
 
       child.on('error', (error) => {
+        if (resolved) return;
+        resolved = true;
         resolve({
           exitCode: 1,
           output: '',
