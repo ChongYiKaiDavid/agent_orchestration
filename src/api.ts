@@ -163,6 +163,37 @@ export async function createTaskFromJira(issue: {
   return parseJson(response);
 }
 
+export interface JiraIssueCreatePayload {
+  summary: string;
+  description?: string;
+  priority?: string;
+  issueType?: string;
+  projectKey?: string;
+}
+
+export interface JiraIssueCreateResult {
+  key: string;
+  id?: string;
+  url: string;
+  demo: boolean;
+}
+
+/**
+ * Creates a new Jira issue and returns its key and URL.
+ * When Jira is not configured or JIRA_DEMO_MODE is on, the server returns
+ * a synthetic DEMO-XXXXX key so the task creation flow can continue.
+ */
+export async function createJiraIssue(
+  payload: JiraIssueCreatePayload,
+): Promise<JiraIssueCreateResult> {
+  const response = await fetch('/api/jira/issues', {
+    method: 'POST',
+    headers: defaultHeaders,
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response);
+}
+
 export async function fetchConfig() {
   const response = await fetch('/api/config');
   return parseJson(response);

@@ -711,6 +711,116 @@ router.get('/jira/issues', async (req, res) => {
   }
 });
 
+// Create a new Jira issue and return its key.
+// When Jira credentials are missing or JIRA_DEMO_MODE is on, returns a synthetic demo key
+// so the frontend can proceed without real Jira connectivity.
+router.post('/jira/issues', express.json(), async (req, res) => {
+  const baseUrl = (() => {
+    const raw = process.env.JIRA_BASE_URL || '';
+    try { return new URL(raw).origin; } catch { return raw.replace(/\/$/, ''); }
+  })();
+  const user = process.env.JIRA_USER;
+  const token = process.env.JIRA_API_TOKEN;
+  const useDemoMode = readBooleanEnv('JIRA_DEMO_MODE', true);
+
+  const { summary, description, priority, issueType, projectKey } = req.body || {};
+
+  if (!summary) {
+    return res.status(400).json({ error: 'Missing required field: summary' });
+  }
+
+  // Demo / no-credentials fallback — synthesise a key so the UI flow still works.
+  if (useDemoMode && (!baseUrl || !user || !token)) {
+    const demoKey = `DEMO-${Date.now().toString().slice(-5)}`;
+    return res.status(201).json({
+      key: demoKey,
+      url: `https://example.com/browse/${demoKey}`,
+      demo: true,
+    });
+  }
+
+  if (!baseUrl || !user || !token) {
+    return res.status(503).json({
+      error: 'Jira credentials not configured. Set JIRA_BASE_URL, JIRA_USER, and JIRA_API_TOKEN.',
+    });
+  }
+
+  // Resolve the project key: explicit param > first JIRA_SPACE_KEYS entry
+  const resolvedProjectKey = (() => {
+    if (projectKey) return projectKey.trim().toUpperCase();
+    const keys = (process.env.JIRA_SPACE_KEYS || '')
+      .split(',')
+      .map(k => k.trim().toUpperCase())
+      .filter(Boolean);
+    return keys[0] || null;
+  })();
+
+  if (!resolvedProjectKey) {
+    return res.status(400).json({
+      error: 'No Jira project key provided and JIRA_SPACE_KEYS is not set.',
+    });
+  }
+
+  // Map priority string to Jira priority object
+  const jiraPriorityName = (() => {
+    const p = (priority || 'medium').toLowerCase();
+    if (p === 'high' || p === 'highest') return 'High';
+    if (p === 'low' || p === 'lowest') return 'Low';
+    return 'Medium';
+  })();
+
+  // Build ADF description body if description is provided
+  const adfDescription = description
+    ? {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: description }],
+          },
+        ],
+      }
+    : undefined;
+
+  const issueBody = {
+    fields: {
+      project: { key: resolvedProjectKey },
+      summary,
+      issuetype: { name: issueType || 'Task' },
+      priority: { name: jiraPriorityName },
+      ...(adfDescription ? { description: adfDescription } : {}),
+    },
+  };
+
+  try {
+    const response = await fetch(`${baseUrl}/rest/api/3/issue`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${user}:${token}`).toString('base64')}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(issueBody),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      return res.status(response.status).json({ error: `Jira API error: ${text}` });
+    }
+
+    const data = await response.json();
+    return res.status(201).json({
+      key: data.key,
+      id: data.id,
+      url: `${baseUrl}/browse/${data.key}`,
+      demo: false,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 // Config routes — read/write .env.agent_orchestration
 const ENV_FILE = path.resolve(process.cwd(), '.env.agent_orchestration');
 
