@@ -322,7 +322,65 @@ const _spawnedTerminals = new Set();
 // Terminal window spawner — opens a new terminal with log viewer for agent output
 // ──────────────────────────────────────────────────────────────────────────────
 
-function spawnAgentTerminal(taskId) {
+function sanitizeForBranchName(input) {
+  return String(input || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9/_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-/]+/, '')
+    .replace(/[-/]+$/, '') || 'untitled';
+}
+
+function resolveConfiguredTargetBranch() {
+  const explicit = (process.env.TARGET_BRANCH ?? '').toString().trim();
+  if (explicit) return explicit;
+
+  const releaseEnabled = (() => {
+    const raw = (process.env.RELEASE_BRANCH_ENABLED ?? 'true').toString().trim().toLowerCase();
+    return !['false', '0', 'no', 'off', 'disabled'].includes(raw);
+  })();
+
+  if (!releaseEnabled) {
+    const fallback = (process.env.TARGET_BRANCH ?? '').toString().trim();
+    return fallback || null;
+  }
+
+  const defRel = (process.env.DEFAULT_RELEASE_BRANCH ?? '').toString().trim();
+  const fallback = (process.env.TARGET_BRANCH ?? '').toString().trim();
+  return defRel || fallback || null;
+}
+
+function resolveUploadBranchName(task) {
+  const configured = resolveConfiguredTargetBranch();
+  if (configured) return configured;
+
+  const taskTitle = task?.title || task?.task_title || '';
+  return `feature/${task.id}_${sanitizeForBranchName(taskTitle).replace(/\//g, '-')}`;
+}
+
+function isTargetBranchMissing(task) {
+  const tb = (task?.target_branch ?? '').toString().trim();
+  return !tb;
+}
+
+function failTaskMissingTargetBranch(task, reason) {
+  const message = reason || 'Missing target branch';
+  try {
+    recordActivity({
+      taskId: task.id,
+      event_type: 'failed',
+      message,
+      details: JSON.stringify({ taskId: task.id }),
+    });
+  } catch {}
+  try {
+    db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run('failed', now(), task.id);
+  } catch {}
+}
+
+
+function spawnAgentTerminal({ taskId, agent, taskTitle }) {
   // Only spawn once per task
   if (_spawnedTerminals.has(taskId)) {
     return;
@@ -332,27 +390,43 @@ function spawnAgentTerminal(taskId) {
   const platform = os.platform();
   // Tail the worker log file instead of using Socket.IO
   const logPath = path.join(process.cwd(), 'server', 'workspaces', taskId, 'worker.log');
+
+  const agentLabel = agent || 'Agent';
+  const terminalTitle = `${agentLabel} | ${taskId}`;
+
   let command, args;
 
   switch (platform) {
     case 'darwin':
       command = 'osascript';
-      args = ['-e', `tell application "Terminal" to do script "tail -f ${logPath}"`];
+      // Set window title when opening.
+      // Also escape backslashes/quotes for AppleScript.
+      const escapedLogPath = logPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const escapedTitle = terminalTitle.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      args = [
+        '-e',
+        `tell application "Terminal"
+          tell window 1
+            set custom title to "${escapedTitle}"
+          end tell
+          do script "tail -f ${escapedLogPath}" in window 1
+        end tell`,
+      ];
       break;
     case 'win32':
       command = 'cmd';
-      args = ['/c', 'start', 'cmd', '/k', `powershell -Command "Get-Content ${logPath} -Wait -Tail 10"`];
+      args = ['/c', 'start', 'cmd', '/k', `title ${terminalTitle} & powershell -Command "Get-Content ${logPath} -Wait -Tail 10"`];
       break;
     default: // linux
-      const terminals = ['gnome-terminal', 'xterm', 'konsole', 'xfce4-terminal'];
-      command = terminals[0];
-      args = ['--', 'tail', '-f', logPath];
+      // Most terminals don't support setting title generically; fall back to title via ANSI.
+      command = 'xterm';
+      args = ['-T', terminalTitle, '--', 'tail', '-f', logPath];
       break;
   }
 
   try {
     spawn(command, args, { detached: true, stdio: 'ignore' });
-    console.log(`[engine] 🖥️  Opened terminal window for task ${taskId} to view worker logs`);
+    console.log(`[engine] 🖥️  Opened terminal window for task ${taskId} to view worker logs (title='${terminalTitle}')`);
   } catch (error) {
     console.error(`[engine] Failed to open terminal window:`, error.message);
   }
@@ -956,6 +1030,15 @@ export async function processTask(task) {
     db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run('failed', now(), task.id);
     return;
   }
+
+  // Enforce: when PR is expected, target branch must be provided.
+  // This prevents creating a PR with an unknown destination branch.
+  const expectsPR = Array.isArray(pipeline?.stages) && pipeline.stages.some(s => s.id === 'create_pr');
+  if (expectsPR && isTargetBranchMissing(task)) {
+    failTaskMissingTargetBranch(task, `Target branch is required for create_pr but task.target_branch is missing.`);
+    return;
+  }
+
   // Fail fast if pipeline expects a coding stage (repo modifications) but task has no repository.
   // However, allow coding stages without repository for simple tasks (e.g., writing standalone scripts)
   const pipelineStageIds = Array.isArray(pipeline?.stages) ? pipeline.stages.map((s) => s.id) : [];
@@ -1123,7 +1206,8 @@ export async function processTask(task) {
     await streamLog(task.id, stage.id, 'system', `\x1b[1;34m>>> Starting stage: ${stage.name} (agent: ${selectedAgent})\x1b[0m`);
 
     // Spawn terminal window to view agent logs in real-time
-    spawnAgentTerminal(task.id);
+    spawnAgentTerminal({ taskId: task.id, agent: selectedAgent, taskTitle: task.title });
+
 
     const stageLogId = stage.id;
 
@@ -1358,8 +1442,9 @@ export async function processTask(task) {
       let prNumber = `branch-task-${task.id.slice(0, 8)}`;
       if (repositoryPath) {
         try {
-          // Use Jira key for branch name if available, otherwise use task ID
-          const branchName = task.jira_ticket ? `${task.jira_ticket.toLowerCase()}` : `task-${task.id.slice(0, 8)}`;
+          // Upload branch name (new branch created before PR)
+          const branchName = resolveUploadBranchName(task);
+
           
           // Check if there are changes
             const statusResult = spawnSync('git', ['status', '--porcelain'], { cwd: repositoryPath, encoding: 'utf8' });
@@ -1690,7 +1775,8 @@ async function createPullRequest(task, executionId, repositoryPath, finalVerdict
     let prNumber = `branch-task-${task.id.slice(0, 8)}`;
     if (repositoryPath) {
       try {
-        const branchName = `task-${task.id.slice(0, 8)}`;
+        const branchName = resolveUploadBranchName(task);
+
 
         // Check if there are changes
         const statusResult = spawnSync('git', ['status', '--porcelain'], { cwd: repositoryPath, encoding: 'utf8' });
@@ -2228,8 +2314,9 @@ async function executeGitPushHook(task, repositoryPath, pipeline) {
   }
 
   try {
-    // Determine branch name from task.auto_branch or fallback
-    const branchName = task.auto_branch || (task.jira_ticket ? task.jira_ticket.toLowerCase() : `task-${task.id.slice(0, 8)}`);
+    // Upload branch name (new branch created before PR)
+    const branchName = resolveUploadBranchName(task);
+
     
     console.log(`[git_push] Preparing to push branch: ${branchName}`);
     
@@ -2357,8 +2444,9 @@ async function executeCreatePRHook(task, executionId, repositoryPath, pipeline, 
   }
 
   try {
-    // Determine branch name
-    const branchName = task.auto_branch || (task.jira_ticket ? task.jira_ticket.toLowerCase() : `task-${task.id.slice(0, 8)}`);
+    // Upload branch name (new branch created before PR)
+    const branchName = resolveUploadBranchName(task);
+
     
     // Get target branch from config or task
     const targetBranch = config.target_branch?.replace('{git.target_branch}', task.target_branch) || task.target_branch || 'main';
