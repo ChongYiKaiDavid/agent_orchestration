@@ -40,8 +40,6 @@ describe('Jira Integration Endpoint', () => {
     process.env = { ...originalEnv };
     // Clean up after each test
     // Delete in dependency order to satisfy foreign keys.
-    // IMPT: Retain current tasks when testing
-    /*
     db.exec(`
       DELETE FROM artifacts;
       DELETE FROM pull_requests;
@@ -53,7 +51,6 @@ describe('Jira Integration Endpoint', () => {
       DELETE FROM activity_log;
       DELETE FROM tasks;
     `);
-    */
   });
 
   it('should create a task from Jira payload with summary', async () => {

@@ -92,7 +92,7 @@ const SECTIONS: Section[] = [
     id: 'devin',
     label: 'Devin',
     fields: [
-      { key: 'DEVIN_PATH', label: 'CLI Path' },
+      { key: 'DEVIN_PATH', label: 'CLI Command' },
       { key: 'DEVIN_PERMISSION_MODE', label: 'Permission Mode' },
       { key: 'DEVIN_MODEL', label: 'Model (optional)' },
     ],

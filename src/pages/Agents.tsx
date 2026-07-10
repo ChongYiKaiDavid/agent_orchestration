@@ -117,7 +117,7 @@ const AgentsPage: React.FC = () => {
   return (
     <div className="agents-page">
       <div className="agents-header">
-        <h1 className="agents-title">Agent Skills</h1>
+        <h1 className="agents-title">Agents</h1>
         <button className="agents-new-btn" type="button" onClick={handleNewAgent}>
           + New Agent
         </button>
@@ -127,7 +127,7 @@ const AgentsPage: React.FC = () => {
         <div className="agents-sidebar">
           <input
             className="agents-filter"
-            placeholder="Filter skills..."
+            placeholder="Filter agents..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />

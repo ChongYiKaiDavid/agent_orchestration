@@ -1,18 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { fetchTasks, fetchTaskExecutions, deleteTask, fetchPipeline, fetchJiraIssues, createTaskFromJira } from '../api';
+import React, { useEffect, useMemo, useState } from 'react';
+import { fetchTasks, fetchTaskExecutions, deleteTask, fetchPipeline, fetchJiraIssues, createTaskFromJira, fetchPipelines } from '../api';
 import PipelineVisualization from '../components/PipelineVisualization';
-
 
 interface DashboardPageProps {
   onViewTask: (taskId: string) => void;
 }
 
 const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
-  const [pipeline, setPipeline] = useState('All pipelines');
-  const [statusFilter, setStatusFilter] = useState('All statuses');
-  const [priority, setPriority] = useState('All priorities');
+  const [pipeline, setPipeline] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'Open' | 'In progress' | 'Done'>('all');
+  const [priority, setPriority] = useState<'all' | 'low' | 'medium' | 'high'>('all');
   const [searchText, setSearchText] = useState('');
-  const [selectAll, setSelectAll] = useState(false);
+  const [pipelines, setPipelines] = useState<Array<{ id: string; name?: string }>>([]);
   const [tasks, setTasks] = useState<any[]>([]);
   const [selectedTask, setSelectedTask] = useState<any | null>(null);
   const [executionDetails, setExecutionDetails] = useState<any | null>(null);
@@ -34,9 +33,22 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
   ];
 
   useEffect(() => {
+    let mounted = true;
+
+    const loadPipelines = async () => {
+      try {
+        const loaded = await fetchPipelines();
+        if (mounted) setPipelines(Array.isArray(loaded) ? loaded : []);
+      } catch {
+        // Best-effort; filters will still work using tasks-derived pipeline ids.
+      }
+    };
+
     const loadTasks = () => {
       fetchTasks()
         .then((loaded: any[]) => {
+          if (!mounted) return;
+
           // Keep existing tasks on the UI if backend temporarily returns empty.
           // This prevents tasks from disappearing on refresh when the server state is momentarily unavailable.
           setTasks((prev) => {
@@ -65,9 +77,14 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
         });
     };
 
+    loadPipelines();
     loadTasks();
     const interval = setInterval(loadTasks, 3000);
-    return () => clearInterval(interval);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -129,24 +146,76 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
     ...task,
     stage: statusToStage(task),
     project: task.repository || 'Unknown repository',
+    // Prefer a deterministic display agent; dashboard filtering itself uses real backend values.
     agent: task.pipeline_id === 'gemini-code-only' ? 'Gemini CLI' : 'Devin',
     timestamp: new Date(task.updated_at).toLocaleString(),
-    priority: task.priority ? task.priority.charAt(0).toUpperCase() + task.priority.slice(1) : 'Medium',
+    // Keep actual priority value from backend for correct filtering/sync.
+    priority: task.priority || null,
   }));
+
+  const availableStatuses = useMemo(() => {
+    // Always show all three status buckets (no hard-coded dummy options beyond the real buckets).
+    // The filter itself is still synced to real task data because selection is applied
+    // using the computed bucket for each task.
+    return ['Open', 'In progress', 'Done'] as Array<'Open' | 'In progress' | 'Done'>;
+  }, [mappedTasks]);
+
+  const availablePriorities = useMemo(() => {
+    // Always show all three priority buckets.
+    // Filtering behavior is still synced via comparing selected bucket to each task's
+    // real backend `task.priority` value.
+    return ['low', 'medium', 'high'] as Array<'low' | 'medium' | 'high'>;
+  }, [mappedTasks]);
+
+  const availablePipelineOptions = useMemo(() => {
+    const byId = new Map<string, { id: string; label: string }>();
+
+    // Only show real pipeline definitions (exclude internal/placeholder ids like 'auto').
+    for (const p of pipelines) {
+      if (!p?.id) continue;
+      if (p.id === 'auto') continue;
+      byId.set(p.id, { id: p.id, label: p.name || p.id });
+    }
+
+    // Also include pipeline ids that exist only in tasks, but still exclude 'auto'.
+    for (const t of mappedTasks) {
+      if (!t.pipeline_id || t.pipeline_id === 'auto') continue;
+      if (!byId.has(t.pipeline_id)) {
+        byId.set(t.pipeline_id, { id: t.pipeline_id, label: t.pipeline_id });
+      }
+    }
+
+    return Array.from(byId.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [mappedTasks, pipelines]);
+
+  // Ensure selected values stay valid as data changes.
+  useEffect(() => {
+    if (pipeline === 'all') return;
+    if (!availablePipelineOptions.some((p) => p.id === pipeline)) setPipeline('all');
+  }, [pipeline, availablePipelineOptions]);
+
+  useEffect(() => {
+    if (statusFilter === 'all') return;
+    if (!availableStatuses.includes(statusFilter)) setStatusFilter('all');
+  }, [statusFilter, availableStatuses]);
+
+  useEffect(() => {
+    if (priority === 'all') return;
+    if (!availablePriorities.includes(priority)) setPriority('all');
+  }, [priority, availablePriorities]);
 
   const filteredTasks = mappedTasks.filter((task) => {
     const query = searchText.trim().toLowerCase();
     const matchesSearch =
       !query ||
-      task.title.toLowerCase().includes(query) ||
+      (task.title || '').toLowerCase().includes(query) ||
       task.project.toLowerCase().includes(query) ||
-      task.agent.toLowerCase().includes(query);
+      (task.agent || '').toLowerCase().includes(query);
 
     const taskStatus = task.stage === 'complete' ? 'Done' : ['plan', 'pr', 'feedback'].includes(task.stage) ? 'Open' : 'In progress';
-    const matchesStatus = statusFilter === 'All statuses' || taskStatus === statusFilter;
-    const matchesPriority = priority === 'All priorities' || task.priority === priority;
-
-    const matchesPipeline = pipeline === 'All pipelines' || (pipeline === 'Code Only' && task.pipeline_id === 'code-only') || (pipeline === 'Plan → Code → Review' && task.pipeline_id === 'plan-code-review') || (pipeline === 'Gemini Code Only' && task.pipeline_id === 'gemini-code-only');
+    const matchesStatus = statusFilter === 'all' || taskStatus === statusFilter;
+    const matchesPriority = priority === 'all' || (task.priority || null) === priority;
+    const matchesPipeline = pipeline === 'all' || task.pipeline_id === pipeline;
 
     return matchesSearch && matchesStatus && matchesPriority && matchesPipeline;
   });
@@ -185,10 +254,13 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
               value={pipeline}
               onChange={(event) => setPipeline(event.target.value)}
             >
-              <option value="All pipelines">All pipelines</option>
-              <option value="Code Only">Code Only</option>
-              <option value="Plan → Code → Review">Plan → Code → Review</option>
-              <option value="Gemini Code Only">Gemini Code Only</option>
+              <option value="all">All pipelines</option>
+              {availablePipelineOptions.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+
             </select>
           </label>
 
@@ -196,12 +268,14 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
             <select
               className="dashboard-filter-select"
               value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
+              onChange={(event) => setStatusFilter(event.target.value as any)}
             >
-              <option value="All statuses">All statuses</option>
-              <option value="Open">Open</option>
-              <option value="In progress">In progress</option>
-              <option value="Done">Done</option>
+              <option value="all">All statuses</option>
+              {availableStatuses.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
             </select>
           </label>
 
@@ -209,20 +283,17 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
             <select
               className="dashboard-filter-select"
               value={priority}
-              onChange={(event) => setPriority(event.target.value)}
+              onChange={(event) => setPriority(event.target.value as any)}
             >
-              <option value="All priorities">All priorities</option>
-              <option value="Low">Low</option>
-              <option value="Medium">Medium</option>
-              <option value="High">High</option>
+              <option value="all">All priorities</option>
+              {availablePriorities.map((p) => (
+                <option key={p} value={p}>
+                  {p.charAt(0).toUpperCase() + p.slice(1)}
+                </option>
+              ))}
             </select>
           </label>
         </div>
-
-        <label className="dashboard-select-all">
-          <input type="checkbox" checked={selectAll} onChange={() => setSelectAll((prev) => !prev)} />
-          <span>Select all</span>
-        </label>
       </div>
 
       <div className="dashboard-status-row">
@@ -239,7 +310,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
 
                   {(statusByStage[item.id] || []).map((task) => (
                     <div
-                      className={`dashboard-task-card ${selectAll ? 'selected' : ''}`}
+                      className="dashboard-task-card"
                       key={task.id}
                       role="button"
                       tabIndex={0}
@@ -357,7 +428,6 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewTask }) => {
             </button>
           </div>
           <p>{selectedTask.description || 'No description available.'}</p>
-
 
           <div className="dashboard-task-details">
             <div>Repository: {selectedTask.project}</div>
