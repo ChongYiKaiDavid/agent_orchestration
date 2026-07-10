@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Sidebar, Header, Layout } from './components/layout';
+import NotificationsCenter from './components/notifications/NotificationsCenter';
 import './index.css';
 
 import DashboardPage from './pages/Dashboard.tsx';
@@ -58,6 +59,9 @@ function App() {
       <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} selected={selectedSection} onSelect={handleSelect} />
       <div className="app-content">
         {selectedSection !== 'dashboard' && <Header onMenuClick={toggleSidebar} />}
+
+        {/* Global notifications */}
+        <NotificationsCenter />
 
         <Layout>
           {renderSection()}

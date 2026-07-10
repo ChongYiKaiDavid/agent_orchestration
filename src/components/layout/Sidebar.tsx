@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import Notifications from '../sections/Notifications';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -108,11 +107,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, selected, on
             </div>
           ))}
         </nav>
-
-        {/* Notifications in sidebar */}
-        <div className="sidebar-notifications">
-          <Notifications />
-        </div>
       </aside>
     </>
   );

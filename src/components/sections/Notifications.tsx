@@ -22,7 +22,21 @@ export default function Notifications() {
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    // Session-based: don't fetch existing notifications, only show new ones during this session
+    const loadExisting = async () => {
+      try {
+        const notifications: Notification[] = await fetch('/api/notifications').then(r => {
+          if (!r.ok) throw new Error('Failed to load notifications');
+          return r.json();
+        });
+        setAllNotifications(notifications);
+        setUnreadCount(notifications.reduce((acc, n) => acc + (n.read === 0 ? 1 : 0), 0));
+      } catch (e) {
+        console.error('[Notifications] failed to load existing notifications', e);
+      }
+    };
+
+    // Load existing notifications so new tasks show up immediately.
+    void loadExisting();
 
     // Connect to Flask Socket.IO
     const flaskUrl = import.meta.env.VITE_FLASK_SOCKET_URL || 'http://localhost:5002';
@@ -72,17 +86,65 @@ export default function Notifications() {
     setToasts(prev => prev.filter(toast => toast.id !== id));
   };
 
-  const markAsRead = (id: string) => {
-    // Session-based: just update local state, no API call
+  const markAsRead = async (id: string) => {
+    // Optimistic update
     setAllNotifications(prev => prev.map(n => n.id === id ? { ...n, read: 1 } : n));
     setUnreadCount(prev => Math.max(0, prev - 1));
     dismissToast(id);
+
+    try {
+      const resp = await fetch(`/api/notifications/${encodeURIComponent(id)}/read`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+
+      // Re-sync from backend so new tasks don't reintroduce unread notifications.
+      // Also satisfy: clicking mark-as-read should effectively remove it from the panel.
+      // After marking read, remove it from the UI unconditionally.
+      setAllNotifications(prev => prev.filter(n => n.id !== id));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+      setToasts([]);
+
+      // Then re-sync from backend to keep counts consistent (and handle race with new notifications).
+      await fetch('/api/notifications')
+        .then(r => r.json())
+        .then((notifications: Notification[]) => {
+          setAllNotifications(notifications.filter(n => n.read === 0));
+          setUnreadCount(notifications.reduce((acc, n) => acc + (n.read === 0 ? 1 : 0), 0));
+        });
+    } catch (e) {
+      console.error('[Notifications] markAsRead failed', e);
+      // Best effort to recover UI.
+      try {
+        const notifications = await fetch('/api/notifications').then(r => r.json());
+        setAllNotifications(notifications);
+        setUnreadCount(notifications.reduce((acc: number, n: Notification) => acc + (n.read === 0 ? 1 : 0), 0));
+        setToasts(prev => prev.filter(t => notifications.some((n: Notification) => n.id === t.id && n.read !== 1)));
+      } catch {}
+    }
   };
 
-  const markAllAsRead = () => {
-    // Session-based: just update local state, no API call
+  const markAllAsRead = async () => {
+    // Optimistic update
     setAllNotifications(prev => prev.map(n => ({ ...n, read: 1 })));
+    setToasts(prev => prev.filter(t => t.read !== 1));
     setUnreadCount(0);
+
+    try {
+      const resp = await fetch('/api/notifications/read-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+
+      const notifications = await fetch('/api/notifications').then(r => r.json()) as Notification[];
+      setAllNotifications(notifications);
+      setUnreadCount(notifications.reduce((acc, n) => acc + (n.read === 0 ? 1 : 0), 0));
+      setToasts([]);
+    } catch (e) {
+      console.error('[Notifications] markAllAsRead failed', e);
+    }
   };
 
   const getNotificationIcon = (type: string) => {
