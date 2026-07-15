@@ -765,6 +765,24 @@ button.nav-item{background:transparent;border:0;outline:0;cursor:pointer;width:1
 .pipelines-new-btn{padding:8px 16px;border-radius:6px;background:var(--accent-blue);color:#000;border:0;font-weight:600;cursor:pointer;font-size:14px}
 .pipelines-new-btn:hover{background:#5a8eef;opacity:0.9}
 
+.pipelines-create-overlay{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(5,10,22,0.72);backdrop-filter:blur(8px)}
+.pipelines-create-modal{width:min(720px,100%);max-height:calc(100vh - 48px);overflow:auto;background:linear-gradient(180deg,rgba(31,34,54,0.98),rgba(22,25,40,0.98));border:1px solid rgba(255,255,255,0.08);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,0.5);padding:20px}
+.pipelines-create-header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px}
+.pipelines-create-title{margin:0;font-size:22px;font-weight:800;color:var(--text)}
+.pipelines-create-close{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:var(--text);cursor:pointer;flex:0 0 auto}
+.pipelines-create-close:hover{background:rgba(255,255,255,0.08)}
+.pipelines-create-error{margin-bottom:14px;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,107,107,0.35);background:rgba(255,107,107,0.08);color:#ffb4b4;font-size:13px}
+.pipelines-create-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.pipelines-create-field{display:flex;flex-direction:column;gap:8px}
+.pipelines-create-field--full{grid-column:1/-1}
+.pipelines-create-label{font-size:12px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em}
+.pipelines-create-input,.pipelines-create-textarea{width:100%;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);color:var(--text);font-size:14px;outline:0}
+.pipelines-create-input:focus,.pipelines-create-textarea:focus{border-color:var(--accent-blue);box-shadow:0 0 0 3px rgba(107,158,255,0.12)}
+.pipelines-create-textarea{resize:vertical;min-height:96px}
+.pipelines-create-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:18px}
+.pipelines-create-secondary{padding:8px 16px;border-radius:10px;background:transparent;border:1px solid rgba(255,255,255,0.14);color:var(--text);font-weight:600;cursor:pointer;font-size:14px}
+.pipelines-create-secondary:hover{background:rgba(255,255,255,0.05)}
+
 .pipelines-container{display:grid;grid-template-columns:320px 1fr;gap:24px;flex:1}
 .pipelines-sidebar{display:flex;flex-direction:column;min-height:0;overflow-y:auto;overflow-x:hidden}
 .pipelines-list{display:flex;flex-direction:column;gap:0}
@@ -784,7 +802,7 @@ button.nav-item{background:transparent;border:0;outline:0;cursor:pointer;width:1
 
 .pipelines-stages-section{display:flex;flex-direction:column;gap:12px}
 .pipelines-stages-diagram{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.pipelines-stage-box{padding:10px 16px;border-radius:6px;background:transparent;border:2px solid rgba(255,255,255,0.2);color:var(--text);font-weight:600;cursor:pointer;outline:0;transition:all 0.2s}
+.pipelines-stage-box{padding:10px 16px;border-radius:6px;background:transparent;border:2px solid rgba(255,255,255,0.2);color:var(--text);font-weight:600;cursor:pointer;outline:0;transition:all 0.2s;min-height:40px;display:inline-flex;align-items:center;justify-content:center}
 .pipelines-stage-box:hover{border-color:var(--accent-blue)}
 .pipelines-stage-box.active{border-color:var(--accent-blue);background:rgba(107,158,255,0.1)}
 .pipelines-stage-arrow{color:var(--muted);font-weight:700;font-size:16px}
@@ -835,4 +853,7 @@ button.nav-item{background:transparent;border:0;outline:0;cursor:pointer;width:1
   .decompose-form,.decompose-drafts{max-width:none}
   .activity-page{max-width:none}
   .activity-toolbar{gap:12px}
+  .pipelines-create-grid{grid-template-columns:1fr}
+  .pipelines-create-actions{flex-direction:column}
+  .pipelines-create-actions > *{width:100%}
 }

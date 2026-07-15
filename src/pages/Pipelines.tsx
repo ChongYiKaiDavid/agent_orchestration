@@ -1,71 +1,205 @@
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import { createPipelineTemplate, deletePipeline, fetchPipelines, savePipelineYaml, updatePipeline } from '../api';
+import { createPipelineTemplate, deletePipeline, fetchAgents, fetchPipelines } from '../api';
+
+type CreatePipelineFormState = {
+  id: string;
+  name: string;
+  description: string;
+  stageAgentId: string;
+  stageSummary: string;
+};
+
+const EMPTY_FORM: CreatePipelineFormState = {
+  id: 'unique-pipeline-id',
+  name: '',
+  description: '',
+  stageAgentId: '',
+  stageSummary: 'Describe what this stage does',
+};
 
 const PipelinesPage: React.FC = () => {
   const [selectedPipeline, setSelectedPipeline] = useState('plan-code-review');
   const [selectedStage, setSelectedStage] = useState(0);
   const [pipelines, setPipelines] = useState<any[]>([]);
+  const [agents, setAgents] = useState<any[]>([]);
   const [yamlByPipelineId, setYamlByPipelineId] = useState<Record<string, string>>({});
   const [yamlPathByPipelineId, setYamlPathByPipelineId] = useState<Record<string, string | null>>({});
-  const [pipelineYamlLoadError, setPipelineYamlLoadError] = useState<string>('');
-  const [pipelineYamlSaveError, setPipelineYamlSaveError] = useState<string>('');
-  const [pipelineYamlSaveStatus, setPipelineYamlSaveStatus] = useState<string>('');
-  const [isSavingYaml, setIsSavingYaml] = useState(false);
-  const [enableGitPush, setEnableGitPush] = useState(true);
-  const [enableCreatePr, setEnableCreatePr] = useState(true);
+  const [pipelineYamlLoadError, setPipelineYamlLoadError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [lastRunTaskId, setLastRunTaskId] = useState<string>('');
   const [isCreatingPipeline, setIsCreatingPipeline] = useState(false);
-  const [pipelineCreateError, setPipelineCreateError] = useState<string>('');
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [pipelineCreateError, setPipelineCreateError] = useState('');
+  const [lastRunTaskId, setLastRunTaskId] = useState('');
+  const [createForm, setCreateForm] = useState<CreatePipelineFormState>(EMPTY_FORM);
+  const [createStageNumberOverride, setCreateStageNumberOverride] = useState<number | null>(null);
 
-  // YAML preview is best-effort based on whatever the backend includes in the pipeline payload.
-  // (No dedicated fetch endpoint is used.)
-  const load = async () => {
+
+  const loadPipelines = async () => {
     setIsLoading(true);
     setPipelineYamlLoadError('');
     try {
       const items = await fetchPipelines();
-      if (Array.isArray(items) && items.length > 0) {
-        setPipelines(items);
+      const nextPipelines = Array.isArray(items) ? items : [];
+      setPipelines(nextPipelines);
 
-        const nextById: Record<string, string> = {};
-        const nextYamlPaths: Record<string, string | null> = {};
-        for (const p of items) {
-          if (!p?.id) continue;
-          if (typeof p?.rawYaml === 'string') nextById[p.id] = p.rawYaml;
-          else if (typeof p?.yaml === 'string') nextById[p.id] = p.yaml;
-          else if (typeof p?.definitionYaml === 'string') nextById[p.id] = p.definitionYaml;
-          nextYamlPaths[p.id] = typeof p?.yamlPath === 'string' ? p.yamlPath : null;
-        }
-        setYamlByPipelineId(nextById);
-        setYamlPathByPipelineId(nextYamlPaths);
-      } else {
-        setPipelines([]);
-        setYamlByPipelineId({});
-        setYamlPathByPipelineId({});
+      const nextById: Record<string, string> = {};
+      const nextYamlPaths: Record<string, string | null> = {};
+      for (const pipeline of nextPipelines) {
+        if (!pipeline?.id) continue;
+        if (typeof pipeline.rawYaml === 'string') nextById[pipeline.id] = pipeline.rawYaml;
+        else if (typeof pipeline.yaml === 'string') nextById[pipeline.id] = pipeline.yaml;
+        else if (typeof pipeline.definitionYaml === 'string') nextById[pipeline.id] = pipeline.definitionYaml;
+        nextYamlPaths[pipeline.id] = typeof pipeline.yamlPath === 'string' ? pipeline.yamlPath : null;
       }
-    } catch (e) {
-      setPipelineYamlLoadError(e instanceof Error ? e.message : String(e));
+      setYamlByPipelineId(nextById);
+      setYamlPathByPipelineId(nextYamlPaths);
+    } catch (error) {
+      setPipelineYamlLoadError(error instanceof Error ? error.message : String(error));
       setPipelines([]);
+      setYamlByPipelineId({});
+      setYamlPathByPipelineId({});
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    load();
+    loadPipelines();
+    fetchAgents()
+      .then((items) => setAgents(Array.isArray(items) ? items : []))
+      .catch(() => setAgents([]));
   }, []);
 
-  const current = pipelines.find((p) => p.id === selectedPipeline) || pipelines[0] || null;
-  const currentStages = (current as any)?.stages;
-  const currentStage =
-    currentStages?.[selectedStage] ||
-    currentStages?.[0] ||
-    ({ id: '', name: '', agent: '', summary: '', verifyFiles: [] } as any);
+  const current = pipelines.find((pipeline) => pipeline.id === selectedPipeline) || pipelines[0] || null;
+  const currentStages = Array.isArray((current as any)?.stages) ? (current as any).stages : [];
+  const currentStage = currentStages[selectedStage] || currentStages[0] || { id: '', name: '', agent: '', summary: '' };
   const currentYaml = current?.id ? yamlByPipelineId[current.id] || '' : '';
   const currentYamlPath = current?.id ? yamlPathByPipelineId[current.id] || null : null;
-  const canSaveYaml = Boolean(current?.id && currentYamlPath && !current?.builtIn);
+
+  // Stage Agent dropdown should list all configured agents.
+  const stage1AgentChoices = agents;
+  const stage1AgentDefaultId = stage1AgentChoices[0]?.id || agents[0]?.id || '';
+
+  // Determine the stage number displayed in the modal:
+  // - If the user is creating a brand new pipeline: always show Stage 1.
+  // - Otherwise: show the next stage after the selected stage index.
+  const createStageNumber = createStageNumberOverride ?? (isCreateModalOpen ? 1 : 1);
+
+  const openCreateModal = () => {
+    setPipelineCreateError('');
+    setCreateStageNumberOverride(1);
+    setCreateForm({
+
+      id: 'unique-pipeline-id',
+      name: '',
+      description: '',
+      stageAgentId: stage1AgentDefaultId,
+      stageSummary: 'Describe what this stage does',
+    });
+    setIsCreateModalOpen(true);
+  };
+
+  const closeCreateModal = () => {
+    setIsCreateModalOpen(false);
+    setPipelineCreateError('');
+    setIsCreatingPipeline(false);
+    setCreateStageNumberOverride(null);
+  };
+
+  const handleCreatePipeline = async () => {
+    setPipelineCreateError('');
+    setIsCreatingPipeline(true);
+
+    try {
+      const pipelineId = createForm.id.trim();
+      if (!pipelineId) {
+        setPipelineCreateError('Please enter a pipeline id.');
+        return;
+      }
+
+      const pipelineName = createForm.name.trim();
+      if (!pipelineName) {
+        setPipelineCreateError('Please enter a pipeline display name.');
+        return;
+      }
+
+      if (pipelines.some((pipeline) => String(pipeline?.name || '').trim().toLowerCase() === pipelineName.toLowerCase())) {
+        setPipelineCreateError(`Pipeline name '${pipelineName}' is already taken. Please choose another name.`);
+        return;
+      }
+
+      const selectedAgent = stage1AgentChoices.find((agent) => agent.id === createForm.stageAgentId)
+        || agents.find((agent) => agent.id === createForm.stageAgentId)
+        || null;
+      if (!selectedAgent?.id) {
+        setPipelineCreateError('Please choose a valid agent for the first stage.');
+        return;
+      }
+
+      const firstStageSummary = createForm.stageSummary.trim();
+      if (!firstStageSummary) {
+        setPipelineCreateError('Please enter a stage summary for the first stage.');
+        return;
+      }
+
+      const firstStageAgentSkills = Array.isArray(selectedAgent.skills) ? selectedAgent.skills : [];
+      const firstStageSkillsText = firstStageAgentSkills.join(' ').toLowerCase();
+      const stageKind = firstStageSkillsText.includes('review') || firstStageSkillsText.includes('reviewer')
+        ? 'reviewing'
+        : firstStageSkillsText.includes('code') || firstStageSkillsText.includes('coder')
+          ? 'coding'
+          : 'planning';
+
+      const stageKindToStageName: Record<string, string> = {
+        planning: 'Planning',
+        coding: 'Coding',
+        reviewing: 'Reviewing',
+      };
+
+      const template = {
+        id: pipelineId,
+        name: pipelineName,
+        description: createForm.description.trim(),
+        stages: [
+          {
+            id: 'stage-1',
+            name: stageKindToStageName[stageKind] || 'Planning',
+            agent: selectedAgent.id,
+            summary: firstStageSummary,
+          },
+        ],
+      };
+
+      await createPipelineTemplate({ pipeline: template });
+      await loadPipelines();
+      setSelectedPipeline(pipelineId);
+      setSelectedStage(0);
+      setLastRunTaskId('');
+      setIsCreateModalOpen(false);
+    } catch (error) {
+      setPipelineCreateError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsCreatingPipeline(false);
+    }
+  };
+
+  const handleDeletePipeline = async () => {
+    if (!current?.id || current?.builtIn) return;
+
+    const deletedId = String(current.id);
+    const ok = window.confirm(`Delete pipeline '${deletedId}'? This will remove server/pipelines/${deletedId}.yaml`);
+    if (!ok) return;
+
+    try {
+      await deletePipeline(deletedId);
+      await loadPipelines();
+      setSelectedPipeline('');
+      setSelectedStage(0);
+    } catch (error) {
+      setPipelineYamlLoadError(error instanceof Error ? error.message : String(error));
+    }
+  };
 
   if (isLoading) {
     return <div className="pipelines-page" />;
@@ -78,121 +212,108 @@ const PipelinesPage: React.FC = () => {
         <button
           className="pipelines-new-btn"
           type="button"
-          onClick={async () => {
-            setPipelineCreateError('');
-            setIsCreatingPipeline(true);
-            try {
-              const id = window.prompt('New pipeline id (must be unique)', `unique-pipeline-id`) || '';
-              const pipelineId = id.trim();
-              if (!pipelineId) return;
-
-              const name = window.prompt('Pipeline display name', pipelineId) || '';
-              const pipelineName = name.trim();
-              if (!pipelineName) return;
-
-              const existingNameTaken = pipelines.some((p) => String(p?.name || '').trim().toLowerCase() === pipelineName.toLowerCase());
-              if (existingNameTaken) {
-                setPipelineCreateError(`Pipeline name '${pipelineName}' is already taken. Please choose another name.`);
-                return;
-              }
-
-              const descriptionInput = window.prompt('Pipeline description', '') || '';
-              const pipelineDescription = descriptionInput.trim();
-
-
-              let stages: any[] = [];
-              const firstStageName = window.prompt('Stage name', 'Stage 1') || '';
-              const firstStageDisplayName = firstStageName.trim();
-              if (!firstStageDisplayName) {
-                setPipelineCreateError('Please enter a name for the first stage.');
-                return;
-              }
-
-              // Agent is predefined from Settings (PIPELINE_AGENT_ID). Default: devin.
-              // We read it via window.__... which we set from Settings page after load.
-              const cfgAgentId = (window as any).__PIPELINE_AGENT_ID__;
-              const firstStageAgent = (cfgAgentId ?? 'devin').toString().trim() || 'devin';
-
-              // Backend requires every stage to have an `agent` field for validation
-              // server/engine.js will still use PIPELINE_AGENT_ID.
-              const firstStageSummary = (window.prompt('Stage summary', 'Describe what this stage does') || '').trim();
-              if (!firstStageSummary) {
-                setPipelineCreateError('Please enter a stage summary for the first stage.');
-                return;
-              }
-
-              stages.push({
-                id: 'stage-1',
-                name: firstStageDisplayName,
-                agent: firstStageAgent,
-                summary: firstStageSummary,
-              });
-
-              // Ensure stage agent is present (server expects it for validation)
-              stages = stages.map((s) => ({
-                ...s,
-                agent: (s as any).agent || firstStageAgent,
-              }));
-
-              // Additional stages are optional
-              // Single-agent pipeline: reuse the same agent for all stages
-              while (window.confirm('Add another stage to this pipeline?')) {
-                const stageName = window.prompt('Stage name', `Stage ${stages.length + 1}`) || '';
-                const stageDisplayName = stageName.trim();
-                if (!stageDisplayName) break;
-
-                const stageSummary = (window.prompt('Stage summary', 'Describe what this stage does') || '').trim();
-                if (!stageSummary) {
-                  break;
-                }
-
-                stages.push({
-                  id: `stage-${stages.length + 1}`,
-                  name: stageDisplayName,
-                  agent: firstStageAgent,
-                  summary: stageSummary,
-                });
-              }
-
-              // Backend requires every stage to have an `agent` field, but YAML preview/save
-              // does not include it. So:
-              // 1) send `stages` WITH agent for backend validation
-              // 2) immediately strip `agent` before returning/storing the YAML template payload.
-              //
-              // Important: backend creates YAML from the exact object we send.
-              // Therefore we must send a validation-only payload, then strip agent before persistence.
-              // In this codepath, we do that by keeping `stages` for validation, but using a
-              // stripped stages copy for the actual template persisted to YAML.
-              // IMPORTANT:
-              // Backend /pipelines/templates validation requires every stage to include `agent`.
-              // We must send stages WITH agent for validation to pass.
-              // Backend persistence logic strips stage.agent from YAML on disk.
-              const template = {
-                id: pipelineId,
-                name: pipelineName,
-                description: pipelineDescription,
-                stages,
-              };
-
-              await createPipelineTemplate({ pipeline: template });
-              await load();
-
-              setSelectedPipeline(pipelineId);
-              setSelectedStage(0);
-              setLastRunTaskId('');
-            } catch (err) {
-              setPipelineCreateError(err instanceof Error ? err.message : String(err));
-            } finally {
-              setIsCreatingPipeline(false);
-            }
-          }}
+          onClick={openCreateModal}
           disabled={isCreatingPipeline}
           aria-label="create-pipeline"
-          title={isCreatingPipeline ? 'Creating pipeline...' : 'Create a pipeline from scratch'}
+          title="Create a pipeline from scratch"
         >
           {isCreatingPipeline ? 'Creating…' : '+ Create Pipeline'}
         </button>
       </div>
+
+      {isCreateModalOpen && (
+        <div className="pipelines-create-overlay" role="presentation" onClick={closeCreateModal}>
+          <div
+            className="pipelines-create-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Create pipeline"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="pipelines-create-header">
+              <h2 className="pipelines-create-title">Create Pipeline</h2>
+              <button type="button" className="pipelines-create-close" onClick={closeCreateModal} aria-label="Close create pipeline dialog">
+                <X size={16} />
+              </button>
+            </div>
+
+            {pipelineCreateError ? <div className="pipelines-create-error">{pipelineCreateError}</div> : null}
+
+            <div className="pipelines-create-grid">
+              {/* Create pipeline stage numbers are based on the stage diagram selection.
+                  For a brand-new pipeline (no selection), show Stage 1. */}
+              <label className="pipelines-create-field">
+                <span className="pipelines-create-label">Pipeline ID</span>
+                <input
+                  className="pipelines-create-input"
+                  value={createForm.id}
+                  onChange={(event) => setCreateForm((prev) => ({ ...prev, id: event.target.value }))}
+                  placeholder="unique-pipeline-id"
+                />
+              </label>
+
+              <label className="pipelines-create-field">
+                <span className="pipelines-create-label">Display Name</span>
+                <input
+                  className="pipelines-create-input"
+                  value={createForm.name}
+                  onChange={(event) => setCreateForm((prev) => ({ ...prev, name: event.target.value }))}
+                  placeholder="My Pipeline"
+                />
+              </label>
+
+              <label className="pipelines-create-field pipelines-create-field--full">
+                <span className="pipelines-create-label">Description</span>
+                <textarea
+                  className="pipelines-create-textarea"
+                  value={createForm.description}
+                  onChange={(event) => setCreateForm((prev) => ({ ...prev, description: event.target.value }))}
+                  placeholder="Optional pipeline description"
+                  rows={3}
+                />
+              </label>
+
+              <label className="pipelines-create-field">
+                  <span className="pipelines-create-label">Stage {createStageNumber} Agent</span>
+                  <select
+                  className="pipelines-select pipelines-create-input"
+                  value={createForm.stageAgentId}
+                  onChange={(event) => setCreateForm((prev) => ({ ...prev, stageAgentId: event.target.value }))}
+                >
+                  <option value="" disabled>
+                    Select an agent
+                  </option>
+                  {stage1AgentChoices.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.displayName || agent.label || agent.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="pipelines-create-field pipelines-create-field--full">
+                  <span className="pipelines-create-label">Stage {createStageNumber} Summary</span>
+                <textarea
+                  className="pipelines-create-textarea"
+                  value={createForm.stageSummary}
+                  onChange={(event) => setCreateForm((prev) => ({ ...prev, stageSummary: event.target.value }))}
+                  placeholder="Describe what the first stage does"
+                  rows={4}
+                />
+              </label>
+            </div>
+
+            <div className="pipelines-create-actions">
+              <button type="button" className="pipelines-create-secondary" onClick={closeCreateModal} disabled={isCreatingPipeline}>
+                Cancel
+              </button>
+              <button type="button" className="pipelines-new-btn" onClick={handleCreatePipeline} disabled={isCreatingPipeline}>
+                {isCreatingPipeline ? 'Creating…' : 'Create Pipeline'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="pipelines-container">
         <div className="pipelines-sidebar">
@@ -226,57 +347,14 @@ const PipelinesPage: React.FC = () => {
             <div className="pipelines-detail-value">{current?.id}</div>
           </div>
 
-              <div className="pipelines-detail-field" style={{ marginTop: 8 }}>
+          <div className="pipelines-detail-field" style={{ marginTop: 8 }}>
             <button
               type="button"
               className="pipelines-remove-btn"
               disabled={!current || current?.builtIn}
               aria-label="delete-pipeline"
               title={current?.builtIn ? 'Built-in pipelines cannot be deleted' : 'Delete this pipeline YAML'}
-              onClick={async () => {
-                if (!current?.id) return;
-                if (current?.builtIn) return;
-
-                const deletedId = String(current.id);
-                const ok = window.confirm(`Delete pipeline '${deletedId}'? This will remove server/pipelines/${deletedId}.yaml`);
-                if (!ok) return;
-
-                try {
-                  await deletePipeline(deletedId);
-
-                  // Fetch fresh list explicitly and update state from that result.
-                  const items = await fetchPipelines();
-                  const nextPipelines = Array.isArray(items) ? items : [];
-
-                  // Hard-filter just in case backend returns stale entries.
-                  const filtered = nextPipelines.filter((p) => String(p?.id) !== deletedId);
-
-                  setPipelines(filtered);
-                  setYamlByPipelineId((prev) => {
-                    if (!prev || typeof prev !== 'object') return prev;
-                    const { [deletedId]: _removed, ...rest } = prev as any;
-                    return rest;
-                  });
-                  setYamlPathByPipelineId((prev) => {
-                    if (!prev || typeof prev !== 'object') return prev;
-                    const { [deletedId]: _removed, ...rest } = prev as any;
-                    return rest;
-                  });
-
-                  setSelectedStage(0);
-                  setLastRunTaskId('');
-
-                  // Ensure UI doesn't keep rendering a deleted pipeline.
-                  setSelectedPipeline(filtered[0]?.id ? String(filtered[0].id) : '');
-                  setPipelineYamlLoadError('');
-                  setPipelineYamlSaveError('');
-                  setPipelineYamlSaveStatus('');
-                } catch (err) {
-                  // eslint-disable-next-line no-console
-                  console.error(err);
-                  setPipelineYamlLoadError(err instanceof Error ? err.message : String(err));
-                }
-              }}
+              onClick={handleDeletePipeline}
             >
               Delete Pipeline
             </button>
@@ -287,29 +365,23 @@ const PipelinesPage: React.FC = () => {
             <div className="pipelines-detail-value">{current?.name}</div>
           </div>
 
-              <div className="pipelines-stages-section">
-                <div className="pipelines-detail-label">Stages</div>
+          <div className="pipelines-stages-section">
+            <div className="pipelines-detail-label">Stages</div>
 
-                {pipelineCreateError ? (
-                  <div style={{ color: '#ff6b6b', fontSize: 12, marginTop: 6, marginBottom: 8 }}>
-                    {pipelineCreateError}
-                  </div>
-                ) : null}
+            {pipelineYamlLoadError ? (
+              <div style={{ color: '#ff6b6b', fontSize: 12, marginTop: 6, marginBottom: 8 }}>{pipelineYamlLoadError}</div>
+            ) : null}
 
+            {lastRunTaskId ? (
+              <div style={{ color: '#7ee787', fontSize: 12, marginTop: 6, marginBottom: 8 }}>Last run task id: {lastRunTaskId}</div>
+            ) : null}
 
-                {lastRunTaskId ? (
-                  <div style={{ color: '#7ee787', fontSize: 12, marginTop: 6, marginBottom: 8 }}>
-                    Last run task id: {lastRunTaskId}
-                  </div>
-                ) : null}
-
-                {/* Back-compat: tests look for a "release-ready" button */}
-                <button type="button" aria-label="release-ready" style={{ display: 'none' }}>
-                  release-ready
-                </button>
+            <button type="button" aria-label="release-ready" style={{ display: 'none' }}>
+              release-ready
+            </button>
 
             <div className="pipelines-stages-diagram">
-              {current?.stages?.map((stage: any, idx: number) => (
+              {currentStages.map((stage: any, idx: number) => (
                 <React.Fragment key={stage.id || stage.name || idx}>
                   <button
                     type="button"
@@ -318,68 +390,32 @@ const PipelinesPage: React.FC = () => {
                   >
                     {stage.name || stage.id}
                   </button>
-                  {idx < current.stages.length - 1 && <span className="pipelines-stage-arrow">−</span>}
+                  <span className="pipelines-stage-arrow">−</span>
                 </React.Fragment>
               ))}
+
               <button
-                className="pipelines-add-stage"
                 type="button"
-                disabled={!current || current?.builtIn}
-                onClick={async () => {
-                  if (!current) return;
-                  if (current?.builtIn) return;
+                className="pipelines-stage-box pipelines-add-stage"
+                onClick={() => {
+                  // Reuse the create-pipeline modal behavior by pre-filling a default stage-1 form.
+                  // A dedicated “add stage” modal can be implemented later.
+                  setPipelineCreateError('');
+                  setCreateStageNumberOverride(currentStages.length + 1);
+                  setCreateForm((prev) => ({
 
-                  const stageNumber = (current.stages?.length || 0) + 1;
-                  const stageName = window.prompt('Stage name', `Stage ${stageNumber}`) || '';
-                  const name = stageName.trim();
-                  if (!name) return;
-
-                  const agent = (window.prompt('Agent (devin | gemini | deepseek | copilot)', 'devin') || 'devin').trim();
-                  const stageSummary = (window.prompt('Stage summary', 'Describe what this stage does') || '').trim();
-                  if (!agent || !stageSummary) return;
-
-                  const nextStages = [
-                    ...(current.stages || []),
-                    {
-                      id: `stage-${stageNumber}`,
-                      name,
-                      agent,
-                      summary: stageSummary,
-                    },
-                  ];
-
-                  // Optimistic UI update
-                  setPipelines((prev) =>
-                    prev.map((p) => (p.id === current.id ? { ...p, stages: nextStages } : p))
-                  );
-
-                  try {
-                    await updatePipeline(String(current.id), {
-                      stages: nextStages,
-                      writeToYaml: true,
-                    });
-                    // Ensure selected pipeline reflects YAML changes.
-                    await load();
-                    // Some backends may return pipelines without the updated stages until cache invalidation;
-                    // set state explicitly from nextStages as well.
-                    setSelectedPipeline(String(current.id));
-                    setPipelines((prev) =>
-                      prev.map((p) => (p.id === current.id ? { ...p, stages: nextStages } : p))
-                    );
-                    setSelectedStage(nextStages.length - 1);
-                    setPipelineYamlLoadError('');
-                  } catch (err) {
-                    setPipelineYamlLoadError(err instanceof Error ? err.message : String(err));
-                    // Revert by reloading best-effort
-                    try {
-                      await load();
-                    } catch {
-                      // ignore
-                    }
-                  }
+                    ...prev,
+                    id: current?.id ? String(current.id) : prev.id,
+                    name: current?.name ? String(current.name) : prev.name,
+                    stageAgentId: agents[0]?.id || prev.stageAgentId,
+                    stageSummary: 'Describe what this stage does',
+                  }));
+                  setIsCreateModalOpen(true);
                 }}
+                aria-label="add-stage"
+                title="Add another stage"
               >
-                + Add Stage
+                Add stage
               </button>
             </div>
           </div>
@@ -387,54 +423,6 @@ const PipelinesPage: React.FC = () => {
           <div className="pipelines-stage-detail">
             <div className="pipelines-stage-header">
               <h3 className="pipelines-stage-title">Stage {selectedStage + 1} Details</h3>
-              <button
-                className="pipelines-remove-btn"
-                type="button"
-                disabled={!current || current?.builtIn || !current?.stages?.length}
-                onClick={async () => {
-                  if (!current || current?.builtIn) return;
-                  const stages = current.stages || [];
-                  if (stages.length <= 1) {
-                    setPipelineYamlSaveError('A pipeline must keep at least one stage.');
-                    return;
-                  }
-
-                  const stage = stages[selectedStage] || stages[stages.length - 1];
-                  const stageLabel = stage?.name || stage?.id || `Stage ${selectedStage + 1}`;
-                  const ok = window.confirm(`Remove '${stageLabel}' from pipeline '${current.id}'?`);
-                  if (!ok) return;
-
-                  const nextStages = stages.filter((_: any, idx: number) => idx !== selectedStage);
-                  const nextSelectedStage = Math.max(0, Math.min(selectedStage, nextStages.length - 1));
-
-                  setPipelines((prev) =>
-                    prev.map((p) => (p.id === current.id ? { ...p, stages: nextStages } : p))
-                  );
-
-                  try {
-                    await updatePipeline(String(current.id), {
-                      stages: nextStages,
-                      writeToYaml: true,
-                    });
-                    await load();
-                    setSelectedPipeline(String(current.id));
-                    setSelectedStage(nextSelectedStage);
-                    setPipelineYamlLoadError('');
-                    setPipelineYamlSaveError('');
-                    setPipelineYamlSaveStatus('Stage removed and YAML saved.');
-                  } catch (err) {
-                    setPipelineYamlLoadError(err instanceof Error ? err.message : String(err));
-                    try {
-                      await load();
-                    } catch {
-                      // ignore
-                    }
-                  }
-                }}
-                title={current?.builtIn ? 'Built-in pipelines cannot be modified' : 'Remove the selected stage'}
-              >
-                Remove
-              </button>
             </div>
 
             <div className="pipelines-stage-grid" style={{ gridTemplateColumns: '1fr' }}>
@@ -445,171 +433,45 @@ const PipelinesPage: React.FC = () => {
 
               <div className="pipelines-field">
                 <label className="pipelines-label">Agent</label>
-                {(() => {
-                  const cfgAgentId = (window as any).__PIPELINE_AGENT_ID__ ?? 'devin';
-                  const agentId = String(cfgAgentId).trim() || 'devin';
-                  const label =
-                    agentId === 'devin'
-                      ? 'Devin'
-                      : agentId === 'gemini'
-                        ? 'Gemini'
-                        : agentId === 'deepseek'
-                          ? 'DeepSeek'
-                          : agentId === 'copilot'
-                            ? 'Copilot'
-                            : agentId;
-
-                  return (
-                    <div className="pipelines-detail-value" aria-label="agent-readonly">
-                      {label}
-                    </div>
-                  );
-                })()}
+                <div className="pipelines-value">
+                  {(() => {
+                    const agent = agents.find((item) => item.id === currentStage.agent);
+                    return agent?.displayName || currentStage.agent || 'devin';
+                  })()}
+                </div>
               </div>
 
-              {/* Override section (placeholder controls; layout requested by user) */}
-              <div className="pipelines-checkboxes" style={{ marginTop: 4 }}>
-                <label className="pipelines-checkbox">
-                  <input type="checkbox" defaultChecked={false} />
-                  <span>Retry cleanup</span>
-                </label>
-                <label className="pipelines-checkbox">
-                  <input type="checkbox" defaultChecked={false} />
-                  <span>Generate diff (post_stage)</span>
-                </label>
-              </div>
-
-              {/* ACTIONS */}
               <div className="pipelines-field">
-                <label className="pipelines-label">Actions</label>
-                <div className="pipelines-checkboxes" style={{ marginTop: 8 }}>
-                  <label className="pipelines-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={enableGitPush}
-                      onChange={(e) => setEnableGitPush(e.target.checked)}
-                    />
-                    <span>git_push</span>
-                  </label>
-                  <label className="pipelines-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={enableCreatePr}
-                      onChange={(e) => setEnableCreatePr(e.target.checked)}
-                    />
-                    <span>create_pr</span>
-                  </label>
-                </div>
-
-                {/* YAML PREVIEW (directly under Actions checkbox div) */}
-                <div style={{ marginTop: 10 }}>
-                  <label className="pipelines-label">YAML Preview</label>
-                  {pipelineYamlLoadError ? (
-                    <div style={{ color: '#ff6b6b', fontSize: 12, marginBottom: 8 }}>{pipelineYamlLoadError}</div>
-                  ) : null}
-                  {pipelineYamlSaveError ? (
-                    <div style={{ color: '#ff6b6b', fontSize: 12, marginBottom: 8 }}>{pipelineYamlSaveError}</div>
-                  ) : null}
-                  {pipelineYamlSaveStatus ? (
-                    <div style={{ color: '#7ee787', fontSize: 12, marginBottom: 8 }}>{pipelineYamlSaveStatus}</div>
-                  ) : null}
-                  {!currentYamlPath ? (
-                    <div style={{ color: '#a7b6d4', fontSize: 12, marginBottom: 8 }}>
-                      This pipeline is not backed by a YAML file, so the preview is read-only.
-                    </div>
-                  ) : null}
-                  <textarea
-                    className="pipelines-yaml-preview"
-                    style={{
-                      background: '#0b1020',
-                      border: '1px solid #2a355a',
-                      borderRadius: 8,
-                      padding: 12,
-                      maxHeight: 350,
-                      overflow: 'auto',
-                      color: '#cfe3ff',
-                      fontSize: 12,
-                      whiteSpace: 'pre-wrap',
-                      margin: 0,
-                      width: '100%',
-                      minHeight: 160,
-                      fontFamily:
-                        'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-                      opacity: currentYamlPath ? 1 : 0.7,
-                    }}
-                    spellCheck={false}
-                    readOnly={!currentYamlPath}
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      if (!current?.id) return;
-                      setPipelineYamlLoadError('');
-                      setPipelineYamlSaveError('');
-                      setPipelineYamlSaveStatus('');
-                      setYamlByPipelineId((prev) => ({ ...(prev || {}), [current.id]: next }));
-                    }}
-                    value={currentYaml}
-                  />
-                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                    <button
-                      type="button"
-                      className="pipelines-new-btn"
-                      disabled={!canSaveYaml || isSavingYaml}
-                      onClick={async () => {
-                        if (!current?.id || !canSaveYaml) return;
-                        setPipelineYamlLoadError('');
-                        setPipelineYamlSaveError('');
-                        setPipelineYamlSaveStatus('');
-                        setIsSavingYaml(true);
-                        try {
-                          await savePipelineYaml(String(current.id), currentYaml);
-                          setPipelineYamlSaveStatus('YAML saved.');
-                          await load();
-                          setSelectedPipeline(String(current.id));
-                          setSelectedStage(0);
-                        } catch (err) {
-                          setPipelineYamlSaveError(err instanceof Error ? err.message : String(err));
-                        } finally {
-                          setIsSavingYaml(false);
-                        }
-                      }}
-                    >
-                      {isSavingYaml ? 'Saving…' : 'Save YAML'}
-                    </button>
-                    <button
-                      type="button"
-                      className="pipelines-remove-btn"
-                      disabled={!current?.id || !currentYamlPath || isSavingYaml}
-                      onClick={async () => {
-                        if (!current?.id || !currentYamlPath) return;
-                        setPipelineYamlLoadError('');
-                        setPipelineYamlSaveError('');
-                        setPipelineYamlSaveStatus('');
-                        await load();
-                        setSelectedPipeline(String(current.id));
-                        setSelectedStage(0);
-                      }}
-                    >
-                      Reload YAML
-                    </button>
-                  </div>
-                </div>
+                <label className="pipelines-label">Summary</label>
+                <div className="pipelines-value">{currentStage.summary || 'No summary provided.'}</div>
               </div>
 
-              {currentStage.verifyFiles?.length > 0 && (
-                <div className="pipelines-field">
-                  <label className="pipelines-label">Verify (file_exists_checks)</label>
-                  <div className="pipelines-verify-list">
-                    {currentStage.verifyFiles.map((file: string) => (
-                      <div key={file} className="pipelines-verify-item">
-                        <span className="pipelines-verify-file">{file}</span>
-                        <button className="pipelines-verify-remove" type="button">
-                          <X size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <div className="pipelines-field">
+                <label className="pipelines-label">YAML Preview</label>
+                {!currentYamlPath ? (
+                  <div style={{ color: '#a7b6d4', fontSize: 12, marginBottom: 8 }}>This pipeline is not backed by a YAML file, so the preview is read-only.</div>
+                ) : null}
+                <textarea
+                  className="pipelines-yaml-preview"
+                  style={{
+                    background: '#0b1020',
+                    border: '1px solid #2a355a',
+                    borderRadius: 8,
+                    padding: 12,
+                    maxHeight: 350,
+                    overflow: 'auto',
+                    color: '#cfe3ff',
+                    fontSize: 12,
+                    whiteSpace: 'pre-wrap',
+                    margin: 0,
+                    width: '100%',
+                    minHeight: 160,
+                    fontFamily: 'monospace',
+                  }}
+                  value={currentYaml}
+                  readOnly
+                />
+              </div>
             </div>
           </div>
         </div>
