@@ -169,6 +169,8 @@ export async function runDevinStage({ prompt, stageId, workspace, onStdout, onSt
                 }
               } catch {}
 
+              onStdout?.(`\n${token}\n`);
+
               if (!resolved) {
                 resolved = true;
                 resolve({
@@ -177,6 +179,7 @@ export async function runDevinStage({ prompt, stageId, workspace, onStdout, onSt
                   logs: stderr.trim(),
                 });
               }
+
 
               // give child time to exit, then try to kill gracefully if still alive
               setTimeout(() => {

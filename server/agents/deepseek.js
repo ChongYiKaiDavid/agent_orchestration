@@ -163,6 +163,8 @@ export async function runDeepSeekStage({ prompt, stageId, workspace, onStdout, o
       const tokens = ['<<<PLANNER_COMPLETE>>>', '<<<CODER_COMPLETE>>>', '<<<REVIEWER_COMPLETE>>>'];
       for (const token of tokens) {
         if (result.output.includes(token)) {
+          // Ensure the token is printed explicitly so worker logs always contain it.
+          onStdout?.(`\n${token}\n`);
           await fs.writeFile(path.join(workspace, '.done'), token).catch(() => {});
           break;
         }
